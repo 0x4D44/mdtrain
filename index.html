@@ -1797,36 +1797,6 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         scenery.add(roof);
       });
 
-      const rearPos=centreBasis.pos.clone().addScaledVector(dir,-28);
-      const rear=new THREE.Mesh(new THREE.BoxGeometry(54,20,12), wingMat);
-      rear.position.set(rearPos.x,10,rearPos.z);
-      rear.rotation.y=centreBasis.yaw;
-      rear.castShadow=rear.receiveShadow=true;
-      scenery.add(rear);
-
-      const rearGlass=new THREE.Mesh(new THREE.PlaneGeometry(50,14), glassMaterial.clone());
-      rearGlass.position.copy(rearPos);
-      rearGlass.position.y=11;
-      rearGlass.position.addScaledVector(dir,-(12/2+0.05));
-      rearGlass.rotation.y=centreBasis.yaw;
-      scenery.add(rearGlass);
-
-      const canopy=new THREE.Mesh(new THREE.BoxGeometry(16,0.6,20), new THREE.MeshStandardMaterial({color:0x263244, roughness:0.35, metalness:0.25}));
-      canopy.position.copy(centreBasis.pos).addScaledVector(dir,-18);
-      canopy.position.y=12;
-      canopy.rotation.y=centreBasis.yaw;
-      canopy.castShadow=canopy.receiveShadow=true;
-      scenery.add(canopy);
-
-      const canopySupports=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,12,16), new THREE.MeshStandardMaterial({color:0xb9c2d0, roughness:0.6}));
-      [-1,1].forEach(side=>{
-        const support=canopySupports.clone();
-        const supportPos=centreBasis.pos.clone().addScaledVector(normal, side*12).addScaledVector(dir,-18);
-        support.position.set(supportPos.x,6,supportPos.z);
-        support.rotation.y=centreBasis.yaw;
-        scenery.add(support);
-      });
-
       // Car park
       const parkBasis=trackBasisAt(east.platformEnd + 40);
       const parkPos=parkBasis.pos.clone().addScaledVector(normal, 38);
