@@ -1147,6 +1147,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       const pagodaDir=new THREE.Vector3(pagodaBasis.dir.x,0,pagodaBasis.dir.z).normalize();
       const pagodaPos=pagodaBasis.pos.clone().addScaledVector(pagodaBasis.normal,-32).addScaledVector(pagodaDir,18);
       buildGoldenPagoda(pagodaPos, pagodaBasis.yaw, pagodaDir);
+      plantPagodaForest();
 
       function buildGoldenPagoda(origin, yaw, forward){
         const goldMat=new THREE.MeshStandardMaterial({color:0xe6bb51, roughness:0.32, metalness:0.6});
@@ -1253,6 +1254,60 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           crown.castShadow=crown.receiveShadow=true;
           scenery.add(trunk,crown);
         });
+      }
+
+
+      function plantPagodaForest(){
+        const trunkMat=new THREE.MeshStandardMaterial({color:0x4b2f25, roughness:0.85});
+        const pineMat=new THREE.MeshStandardMaterial({color:0x285438, roughness:0.58});
+        const broadMat=new THREE.MeshStandardMaterial({color:0x3a6a3c, roughness:0.62});
+        const shrubMat=new THREE.MeshStandardMaterial({color:0x274427, roughness:0.9});
+        const shrubGeom=new THREE.DodecahedronGeometry(1.1,0);
+
+        const startS=248;
+        const endS=318;
+        const treeCount=46;
+        for(let i=0;i<treeCount;i++){
+          const s=startS + rand(0,endS-startS);
+          const basis=trackBasisAt(s);
+          const normal=basis.normal;
+          const tangent=new THREE.Vector3(basis.dir.x,0,basis.dir.z).normalize();
+          const lateral=new THREE.Vector3(-tangent.z,0,tangent.x);
+          const offset=32 + rand(0,14);
+          const lateralShift=rand(-6,6);
+          const pos=basis.pos.clone().addScaledVector(normal,-offset).addScaledVector(lateral,lateralShift);
+
+          const useBroad=Math.random()<0.28;
+          const trunkHeight= useBroad ? 3.6 + rand(-0.3,0.6) : 4.8 + rand(-0.4,1.0);
+          const trunkGeo=new THREE.CylinderGeometry(0.22,0.32,trunkHeight,useBroad?9:10);
+          const trunk=new THREE.Mesh(trunkGeo, trunkMat);
+          trunk.position.set(pos.x, trunkHeight/2, pos.z);
+          trunk.rotation.y=basis.yaw + rand(-0.2,0.2);
+          trunk.castShadow=trunk.receiveShadow=true;
+
+          let crown;
+          if(useBroad){
+            crown=new THREE.Mesh(new THREE.DodecahedronGeometry(1.9,0), broadMat);
+            const scale=1.1 + rand(-0.1,0.25);
+            crown.scale.setScalar(scale);
+            crown.position.set(pos.x, trunkHeight+0.9, pos.z);
+          }else{
+            const coneGeo=new THREE.ConeGeometry(1.6 + rand(-0.2,0.35),3.9 + rand(-0.3,0.8),14);
+            crown=new THREE.Mesh(coneGeo, pineMat);
+            crown.position.set(pos.x, trunkHeight+1.6, pos.z);
+          }
+          crown.castShadow=crown.receiveShadow=true;
+          scenery.add(trunk,crown);
+
+          if(Math.random()<0.32){
+            const shrub=new THREE.Mesh(shrubGeom, shrubMat);
+            shrub.position.set(pos.x + rand(-2.8,2.8), 0.3, pos.z + rand(-2.8,2.8));
+            const shrubScale=0.75 + Math.random()*0.45;
+            shrub.scale.setScalar(shrubScale);
+            shrub.castShadow=shrub.receiveShadow=true;
+            scenery.add(shrub);
+          }
+        }
       }
 
       function createGlowTexture(hex){
