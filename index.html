@@ -66,6 +66,7 @@
   <div class="row">
     <span class="badge">Score</span><span id="score" class="value">0</span>
     <span class="badge">AWS</span><span id="aws" class="value">CLEAR</span>
+    <span class="badge">Dir</span><span id="dir" class="value">FWD</span>
     <span class="badge">Brake</span><span id="brk" class="value">0%</span>
     <span class="badge">Thr</span><span id="thr" class="value">0%</span>
   </div>
@@ -76,12 +77,12 @@
 </div>
 
 <div id="tooltip">
-  <div><b>Controls</b>: LMB look • ESC recenter • W/S throttle • A/D brake • Q acknowledge AWS • Space open/close doors • R reset after incident • J jump menu</div>
+  <div><b>Controls</b>: LMB look • ESC recenter • W/S throttle • A/D brake • X toggle reverse • Q acknowledge AWS • Space doors • R recover • J station jump</div>
   <div style="margin-top:6px;" class="muted">
     When stopped at the STOP board, doors will open. <b>Dwell</b> counts down (default 8 s). At 0 s you can press <b>Space</b> to close (or they’ll auto‑close). The cab “DOORS” lamp is <b>amber</b> when open, <b>green</b> when interlock is made.
   </div>
 </div>
-<div id="bottom">Signals corrected (post behind head, UK aspect order) • Door HUD + lamp</div>
+<div id="bottom">Eastbank terminus upgraded • Reverse gear (X) • Station jump menu (J)</div>
 
 <div id="overlay">
   <div class="panel">
@@ -1208,6 +1209,20 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           post.rotation.y=sign.rotation.y;
           post.castShadow=post.receiveShadow=true;
           scenery.add(post);
+
+          const braceMat=new THREE.MeshStandardMaterial({color:0x627089, roughness:0.6});
+          const brace=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,1.5), braceMat);
+          const forward=new THREE.Vector3(Math.sin(sign.rotation.y),0,Math.cos(sign.rotation.y));
+          brace.position.copy(pos).addScaledVector(forward,0.75);
+          brace.position.y=1.05;
+          brace.rotation.y=sign.rotation.y;
+          brace.castShadow=brace.receiveShadow=true;
+          scenery.add(brace);
+
+          const finial=new THREE.Mesh(new THREE.SphereGeometry(0.12,12,12), signPostMat);
+          finial.position.copy(post.position); finial.position.y+=1.5;
+          finial.castShadow=finial.receiveShadow=true;
+          scenery.add(finial);
         }
       });
     }
@@ -1715,33 +1730,102 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       const normal=centreBasis.normal;
       const dir=new THREE.Vector3(centreBasis.dir.x,0,centreBasis.dir.z).normalize();
 
-      // Grand station building
-      const hallWidth=60, hallHeight=22, hallDepth=32;
-      const hallPos=centreBasis.pos.clone().addScaledVector(normal, 12).addScaledVector(dir, -6);
-      const hallMat=new THREE.MeshStandardMaterial({color:0x1c2739, roughness:0.5, metalness:0.3});
-      const hall=new THREE.Mesh(new THREE.BoxGeometry(hallWidth,hallHeight,hallDepth), hallMat);
-      hall.position.set(hallPos.x,hallHeight/2,hallPos.z);
-      hall.rotation.y=centreBasis.yaw + 0.02;
-      hall.castShadow=hall.receiveShadow=true;
-      scenery.add(hall);
+      // Approach terraces (European style)
+      const terraceFacade=makeTerraceFacadeTex(); terraceFacade.wrapS=terraceFacade.wrapT=THREE.RepeatWrapping; terraceFacade.anisotropy=4;
+      const terraceRoof=makeTerraceRoofTex(); terraceRoof.wrapS=terraceRoof.wrapT=THREE.RepeatWrapping; terraceRoof.anisotropy=4;
+      const terraceMat=new THREE.MeshStandardMaterial({map:terraceFacade, roughness:0.68});
+      const terraceRoofMat=new THREE.MeshStandardMaterial({map:terraceRoof, roughness:0.45});
+      const terraceRanges=[
+        {side:1,start:east.platformStart-120,end:east.platformStart-10,offset:16.5},
+        {side:-1,start:east.platformStart-130,end:east.platformStart,offset:18}
+      ];
+      terraceRanges.forEach(cfg=>{
+        for(let s=cfg.start; s<=cfg.end; s+=10){
+          const basis=trackBasisAt(s);
+          const normal=basis.normal;
+          const pos=basis.pos.clone().addScaledVector(normal, cfg.side*(cfg.offset + rand(-0.8,0.8)));
+          const block=new THREE.Mesh(new THREE.BoxGeometry(10,5.6,5.2), terraceMat);
+          block.position.set(pos.x,2.8,pos.z);
+          block.rotation.y=basis.yaw + rand(-0.05,0.05);
+          block.castShadow=block.receiveShadow=true;
+          const roof=new THREE.Mesh(new THREE.BoxGeometry(10.4,0.8,5.6), terraceRoofMat);
+          roof.position.copy(block.position); roof.position.y=block.position.y+3.4;
+          roof.rotation.y=block.rotation.y;
+          roof.castShadow=roof.receiveShadow=true;
+          const dormer=new THREE.Mesh(new THREE.BoxGeometry(2.2,1.2,1.4), new THREE.MeshStandardMaterial({color:0xf1f3f8, roughness:0.3}));
+          dormer.position.copy(block.position);
+          dormer.position.y=roof.position.y+0.6;
+          dormer.rotation.y=roof.rotation.y;
+          dormer.position.add(new THREE.Vector3(Math.sin(roof.rotation.y),0,Math.cos(roof.rotation.y)).multiplyScalar(2.2));
+          dormer.castShadow=dormer.receiveShadow=true;
+          scenery.add(block,roof,dormer);
 
-      const facadeTex=makeHallGlassTex();
-      const facade=new THREE.Mesh(new THREE.PlaneGeometry(hallWidth-6, hallHeight-4), new THREE.MeshStandardMaterial({map:facadeTex, transparent:true, emissive:0x2a4f86, emissiveIntensity:0.35}));
-      facade.position.set(hallPos.x, hall.position.y+1.5, hallPos.z - Math.cos(hall.rotation.y)*(hallDepth/2+0.02));
-      facade.rotation.y=hall.rotation.y;
-      scenery.add(facade);
+          // small front garden wall
+          const wall=new THREE.Mesh(new THREE.BoxGeometry(9.4,0.8,0.3), new THREE.MeshStandardMaterial({color:0xbab3a7, roughness:0.7}));
+          const frontDir=new THREE.Vector3(Math.sin(block.rotation.y),0,Math.cos(block.rotation.y));
+          wall.position.copy(block.position).addScaledVector(frontDir, 3.1).setY(0.4);
+          wall.castShadow=wall.receiveShadow=true;
+          scenery.add(wall);
+        }
+      });
 
-      const roofCrown=new THREE.Mesh(new THREE.BoxGeometry(hallWidth+4,2.6,hallDepth+4), new THREE.MeshStandardMaterial({color:0x24334a, roughness:0.45}));
-      roofCrown.position.copy(hall.position);
-      roofCrown.position.y=hallHeight+1.3;
-      roofCrown.rotation.y=hall.rotation.y;
-      roofCrown.castShadow=roofCrown.receiveShadow=true;
-      scenery.add(roofCrown);
+      // Grand station building (U-shape around the track)
+      const wingMat=new THREE.MeshStandardMaterial({color:0x1c2739, roughness:0.5, metalness:0.3});
+      const glassTex=makeHallGlassTex();
+      const glassMaterial=new THREE.MeshStandardMaterial({map:glassTex, transparent:true, emissive:0x2a4f86, emissiveIntensity:0.35});
 
-      const atrium=new THREE.Mesh(new THREE.CylinderGeometry(9,9,18,24,1,true), new THREE.MeshStandardMaterial({color:0x2e3d58, emissive:0x1b4b8c, emissiveIntensity:0.4, roughness:0.3, transparent:true, opacity:0.75}));
-      atrium.position.copy(hall.position).addScaledVector(dir, 11);
-      atrium.castShadow=atrium.receiveShadow=true;
-      scenery.add(atrium);
+      const wingWidth=22, wingHeight=18, wingDepth=14;
+      const wingOffset=26;
+      [1,-1].forEach(side=>{
+        const wingPos=centreBasis.pos.clone().addScaledVector(normal, side*wingOffset).addScaledVector(dir,-12);
+        const wing=new THREE.Mesh(new THREE.BoxGeometry(wingWidth,wingHeight,wingDepth), wingMat);
+        wing.position.set(wingPos.x, wingHeight/2, wingPos.z);
+        wing.rotation.y=centreBasis.yaw + side*0.05;
+        wing.castShadow=wing.receiveShadow=true;
+        scenery.add(wing);
+
+        const front=wingPos.clone().addScaledVector(normal, -side*(wingDepth/2+0.05));
+        const glazing=new THREE.Mesh(new THREE.PlaneGeometry(wingWidth-4, wingHeight-6), glassMaterial.clone());
+        glazing.position.set(front.x, wing.position.y+1.5, front.z);
+        glazing.rotation.y=wing.rotation.y;
+        scenery.add(glazing);
+
+        const roof=new THREE.Mesh(new THREE.BoxGeometry(wingWidth+2,1.4,wingDepth+2), new THREE.MeshStandardMaterial({color:0x24334a, roughness:0.45}));
+        roof.position.set(wingPos.x, wingHeight+0.7, wingPos.z);
+        roof.rotation.y=wing.rotation.y;
+        roof.castShadow=roof.receiveShadow=true;
+        scenery.add(roof);
+      });
+
+      const rearPos=centreBasis.pos.clone().addScaledVector(dir,-28);
+      const rear=new THREE.Mesh(new THREE.BoxGeometry(54,20,12), wingMat);
+      rear.position.set(rearPos.x,10,rearPos.z);
+      rear.rotation.y=centreBasis.yaw;
+      rear.castShadow=rear.receiveShadow=true;
+      scenery.add(rear);
+
+      const rearGlass=new THREE.Mesh(new THREE.PlaneGeometry(50,14), glassMaterial.clone());
+      rearGlass.position.copy(rearPos);
+      rearGlass.position.y=11;
+      rearGlass.position.addScaledVector(dir,-(12/2+0.05));
+      rearGlass.rotation.y=centreBasis.yaw;
+      scenery.add(rearGlass);
+
+      const canopy=new THREE.Mesh(new THREE.BoxGeometry(16,0.6,20), new THREE.MeshStandardMaterial({color:0x263244, roughness:0.35, metalness:0.25}));
+      canopy.position.copy(centreBasis.pos).addScaledVector(dir,-18);
+      canopy.position.y=12;
+      canopy.rotation.y=centreBasis.yaw;
+      canopy.castShadow=canopy.receiveShadow=true;
+      scenery.add(canopy);
+
+      const canopySupports=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,12,16), new THREE.MeshStandardMaterial({color:0xb9c2d0, roughness:0.6}));
+      [-1,1].forEach(side=>{
+        const support=canopySupports.clone();
+        const supportPos=centreBasis.pos.clone().addScaledVector(normal, side*12).addScaledVector(dir,-18);
+        support.position.set(supportPos.x,6,supportPos.z);
+        support.rotation.y=centreBasis.yaw;
+        scenery.add(support);
+      });
 
       // Car park
       const parkBasis=trackBasisAt(east.platformEnd + 40);
@@ -1768,6 +1852,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
 
       // Buffer stop with warning lights
       const bufferS=east.platformEnd+8;
+      east.bufferStopS=bufferS;
       const bufferBasis=trackBasisAt(bufferS);
       const bufferPos=bufferBasis.pos.clone();
       const cross=new THREE.Mesh(new THREE.BoxGeometry(2.8,1.2,0.5), new THREE.MeshStandardMaterial({color:0x7e2b2b, roughness:0.4}));
@@ -1856,7 +1941,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       // Forecourt paving
       const plaza=new THREE.Mesh(new THREE.PlaneGeometry(72,40), new THREE.MeshStandardMaterial({color:0x3b4452, roughness:0.85}));
       plaza.rotation.x=-Math.PI/2;
-      plaza.position.copy(hall.position).addScaledVector(dir, - hallDepth/2 - 6);
+      plaza.position.copy(centreBasis.pos).addScaledVector(dir,-18);
       plaza.position.y=0.01;
       scenery.add(plaza);
 
@@ -1885,6 +1970,31 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         grd.addColorStop(0.4,`${color}0.35)`);
         grd.addColorStop(1,'rgba(0,0,0,0)');
         g.fillStyle=grd; g.beginPath(); g.arc(64,64,64,0,Math.PI*2); g.fill();
+        return new THREE.CanvasTexture(c);
+      }
+      function makeTerraceFacadeTex(){
+        const c=document.createElement('canvas'); c.width=512; c.height=256; const g=c.getContext('2d');
+        g.fillStyle='#8c4b38'; g.fillRect(0,0,512,256);
+        g.fillStyle='#723d2f'; for(let y=0;y<=256;y+=32) g.fillRect(0,y,512,3);
+        g.fillStyle='#f7ede2';
+        for(let row=20; row<220; row+=48){
+          for(let col=18; col<500; col+=48){
+            g.fillRect(col,row,24,30);
+            g.fillStyle='#2e3945'; g.fillRect(col+4,row+6,16,18);
+            g.fillStyle='#f7ede2';
+          }
+        }
+        g.fillStyle='#cfb79f';
+        for(let x=0;x<512;x+=64){ g.fillRect(x,200,48,22); g.fillStyle='#704c32'; g.fillRect(x,200,48,5); g.fillStyle='#cfb79f'; }
+        return new THREE.CanvasTexture(c);
+      }
+      function makeTerraceRoofTex(){
+        const c=document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d');
+        g.fillStyle='#4b4642'; g.fillRect(0,0,256,256);
+        g.fillStyle='#3a3531';
+        for(let y=0;y<256;y+=10){
+          for(let x=(y/10)%2?6:0;x<256;x+=12){ g.fillRect(x,y,10,8); }
+        }
         return new THREE.CanvasTexture(c);
       }
     }
@@ -2084,7 +2194,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   // ---------- State / Audio ----------
   const state={ s:stations[0].stopS, speed:0, throttle:0, brake:0, eBrake:false,
     simTime:timetableBase, score:0, derailed:false, spad:false, doorsOpen:true, dwellUntil:null,
-    awsState:'CLEAR', awsDeadline:0, finished:false };
+    awsState:'CLEAR', awsDeadline:0, finished:false, bufferImpact:false, direction:1 };
   const frontOffset=2.0, frontS=()=>state.s+frontOffset;
   let prevBrake=state.brake;
 
@@ -2154,7 +2264,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   }
   function updateAudio(){
     if(!audioReady) return;
-    const mph=mpsToMph(state.speed);
+    const mph=mpsToMph(Math.abs(state.speed));
     const notch=clamp(state.throttle,0,1);
     const baseHz=clamp(38 + mph*1.9 + notch*34, 38, 260);
     engineMainOsc.frequency.setTargetAtTime(baseHz,audioCtx.currentTime,0.08);
@@ -2203,7 +2313,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     src.buffer=clackBuffer;
     src.playbackRate.value=clamp(0.9 + Math.random()*0.25, 0.9, 1.25);
     const gain=audioCtx.createGain();
-    const mph=mpsToMph(state.speed);
+    const mph=mpsToMph(Math.abs(state.speed));
     const base=clamp(0.12 + mph*0.006, 0.12, 0.48);
     gain.gain.value=base;
     gain.gain.setValueAtTime(base,audioCtx.currentTime);
@@ -2241,6 +2351,17 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       return;
     }
     if(e.code==='KeyJ'){ showJumpMenu(); return; }
+    if(e.code==='KeyX'){
+      if(Math.abs(state.speed)<0.5){
+        state.direction *= -1;
+        state.throttle=0;
+        state.brake=0;
+        beep(720,0.08,'triangle',0.08);
+      } else {
+        beep(300,0.08,'sawtooth',0.05);
+      }
+      return;
+    }
     ensureAudio();
     if(e.code==='KeyW') state.throttle=clamp(state.throttle+0.1,0,1);
     if(e.code==='KeyS') state.throttle=clamp(state.throttle-0.1,0,1);
@@ -2248,7 +2369,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     if(e.code==='KeyD') state.brake=clamp(state.brake+0.1,0,1);
     if(e.code==='KeyQ' && state.awsState==='WARNING') awsClear();
     if(e.code==='Space'){
-      if(isWithinPlatform(nextStationIndex) && state.speed<0.2){
+      if(isWithinPlatform(nextStationIndex) && Math.abs(state.speed)<0.2){
         toggleDoors();
       }
     }
@@ -2270,6 +2391,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         state.eBrake=false;
         state.brake=0;
         state.throttle=0;
+        state.bufferImpact=false;
       }
     }
     if(e.code==='Escape') recenter();
@@ -2314,6 +2436,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     cab._awsLamp.material.color.setHex(0x111111);
     state.simTime=Math.max(0, target.due-60);
     nextStationIndex=idx;
+    state.direction=1;
+    state.bufferImpact=false;
     stations.forEach((station,i)=>{
       station._arrived = i<idx;
       station._completedStop = i<idx || (station.name==='Westford' && i===0);
@@ -2343,12 +2467,29 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       }
     }
   }
+  function checkBufferStopCollision(prevFront, nowFront){
+    if(state.bufferImpact) return;
+    const east=stations.find(st=>st.name==='Eastbank');
+    if(!east || !east.bufferStopS) return;
+    const threshold=east.bufferStopS - 0.25;
+    if(prevFront<threshold && nowFront>=threshold){
+      state.bufferImpact=true;
+      state.derailed=true;
+      state.eBrake=true;
+      state.brake=1.0;
+      state.throttle=0;
+      state.score-=150;
+      state.speed=0;
+      state.s=Math.min(state.s, east.bufferStopS - frontOffset - 0.2);
+      showOverlay('Buffer Collision','You struck the Eastbank buffer stop. Train secured; press R to reset and regroup.');
+    }
+  }
 
   // ---------- HUD refs ----------
   const hudSpeed=document.getElementById('speed'), hudLimit=document.getElementById('limit'), hudSig=document.getElementById('sig'),
         hudTime=document.getElementById('time'), hudNext=document.getElementById('next'), hudDue=document.getElementById('due'),
         hudETA=document.getElementById('eta'), hudScore=document.getElementById('score'), hudAWS=document.getElementById('aws'),
-        hudBrk=document.getElementById('brk'), hudThr=document.getElementById('thr'), hudDoors=document.getElementById('doors'),
+        hudDir=document.getElementById('dir'), hudBrk=document.getElementById('brk'), hudThr=document.getElementById('thr'), hudDoors=document.getElementById('doors'),
         hudDwell=document.getElementById('dwell');
 
   // ---------- Sim loop ----------
@@ -2363,22 +2504,39 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     if(prevBrake>0.15 && state.brake<0.05 && !state.doorsOpen){ playBrakeRelease(); }
     prevBrake=state.brake;
 
-    const limitMph=currentLimitAtS(state.s), curve=Route.isCurvedAt(state.s), mph=mpsToMph(state.speed);
+    const limitMph=currentLimitAtS(state.s), curve=Route.isCurvedAt(state.s), absSpeed=Math.abs(state.speed), mph=mpsToMph(absSpeed);
     if(mph>limitMph+2) state.score -= 0.2*dt*(mph-(limitMph+2));
     if(!state.derailed && curve && mph>limitMph+10){ state.derailed=true; state.eBrake=true; state.brake=1.0; state.throttle=0; state.score-=300;
       showOverlay('Derailment',`You took a curve at ${Math.round(mph)} mph with a ${limitMph} mph limit.\nPenalty applied. Press R to acknowledge and continue.`); }
 
-    if(state.derailed){ state.speed=Math.max(0,state.speed-3.5*dt); if(state.speed<0.05) state.speed=0; }
+    if(state.derailed){
+      const sign=Math.sign(state.speed);
+      state.speed -= sign*3.5*dt;
+      if(Math.abs(state.speed)<0.05) state.speed=0;
+    }
     else{
-      const maxA=0.48, maxB=1.0; let a=maxA*state.throttle - maxB*state.brake; a -= (0.06 + 0.0007*state.speed*state.speed);
-      if(state.eBrake) a -= 2.0; if(state.doorsOpen) a = Math.min(a, -1.5); state.speed+=a*dt; if(state.speed<0) state.speed=0;
+      const maxA=0.48, maxB=1.0;
+      const effThrottle=state.throttle * state.direction;
+      const absV=Math.abs(state.speed);
+      const dragDir = absV>0 ? Math.sign(state.speed) : Math.sign(effThrottle||state.direction||1);
+      const drag=(0.06 + 0.0007*absV*absV);
+      let a=maxA*effThrottle - maxB*state.brake - drag*dragDir;
+      if(state.eBrake && state.speed!==0) a -= 2.0*Math.sign(state.speed);
+      const holdSign=Math.sign(state.speed||effThrottle||state.direction||1);
+      if(state.doorsOpen){
+        if(holdSign>=0) a = Math.min(a, -1.5);
+        else a = Math.max(a, 1.5);
+      }
+      state.speed+=a*dt;
+      if(Math.abs(state.speed)<0.01 && Math.abs(effThrottle)<0.05) state.speed=0;
     }
 
     const prevS=state.s, prevFront=frontS(); state.s += state.speed*dt; const nowFront=frontS();
     if(state.s>Route.length-2){ state.s=Route.length-2; state.speed=0; }
+    if(state.s<0){ state.s=0; state.speed=0; }
 
     // clacks
-    const ds=state.s-prevS; sleeperPhase+=Math.max(0,ds); while(sleeperPhase>=0.7){ sleeperPhase-=0.7; if(mph>8) playClack(); }
+    const ds=state.s-prevS; sleeperPhase+=Math.abs(ds); while(sleeperPhase>=0.7){ sleeperPhase-=0.7; if(mpsToMph(Math.abs(state.speed))>8) playClack(); }
 
     animatedForklifts.forEach(f=>{
       const cycle=(state.simTime * f.speed + f.phase) % (f.span*2);
@@ -2409,7 +2567,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       pod.mesh.rotation.x += dt * 0.3;
     });
 
-    checkAWS(prevFront,nowFront); checkSPAD(prevFront,nowFront);
+    checkAWS(prevFront,nowFront); checkSPAD(prevFront,nowFront); checkBufferStopCollision(prevFront,nowFront);
     handleStations();
 
     // Camera
@@ -2418,8 +2576,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     const look=fwd.clone().applyAxisAngle(up,yaw).applyAxisAngle(right,pitch); camera.position.copy(cab.position).add(new THREE.Vector3(0,0.25,0.25)); camera.lookAt(camera.position.clone().add(look));
 
     // Instruments
-    cab._speedNeedle.rotation.z = (mpsToMph(state.speed)/120)*Math.PI*1.5 + Math.PI*0.75;
-    cab._throttleLever.rotation.x = -state.throttle*0.9; cab._brakeLever.rotation.x = -state.brake*0.9;
+    cab._speedNeedle.rotation.z = (mpsToMph(Math.abs(state.speed))/120)*Math.PI*1.5 + Math.PI*0.75;
+    cab._throttleLever.rotation.x = -state.throttle*0.9*state.direction; cab._brakeLever.rotation.x = -state.brake*0.9;
 
     // DOORS lamp: amber (open) vs green (closed & interlock)
     cab._doorsLamp.material.color.setHex(state.doorsOpen ? 0xffc04d : 0x4dff6a);
@@ -2428,7 +2586,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     drawTimetable();
 
     // HUD updates
-    hudSpeed.textContent=Math.round(mpsToMph(state.speed)); hudLimit.textContent=limitMph; hudSig.textContent=nearestSignalAspect();
+    hudSpeed.textContent=Math.round(mpsToMph(Math.abs(state.speed))); hudLimit.textContent=limitMph; hudSig.textContent=nearestSignalAspect();
+    hudDir.textContent=state.direction===-1?'REV':'FWD';
     hudTime.textContent=nowStr(state.simTime); hudNext.textContent=stations[nextStationIndex]?stations[nextStationIndex].name:'—';
     hudDue.textContent=stations[nextStationIndex]?nowStr(stations[nextStationIndex].due):'—'; hudETA.textContent=estimateETA();
     hudScore.textContent=Math.round(state.score); hudAWS.textContent=state.awsState; hudBrk.textContent=Math.round(state.brake*100)+'%'; hudThr.textContent=Math.round(state.throttle*100)+'%';
@@ -2449,12 +2608,12 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     const idx=nextStationIndex; if(!stations[idx]) return;
     const st=stations[idx]; const inPlat=isWithinPlatform(idx);
     if(inPlat){
-      if(state.speed<0.15 && !st._arrived){
+      if(Math.abs(state.speed)<0.15 && !st._arrived){
         st._arrived=true; const diff=Math.abs(state.simTime-st.due);
         if(diff<=30) state.score+=100; else state.score -= Math.max(0,state.simTime-st.due)*0.5;
         state.score+=50;
       }
-      if(!state.doorsOpen && state.speed<0.05 && !state.dwellUntil){ state.doorsOpen=true; state.dwellUntil=state.simTime+8; doorChime(true); }
+      if(!state.doorsOpen && Math.abs(state.speed)<0.05 && !state.dwellUntil){ state.doorsOpen=true; state.dwellUntil=state.simTime+8; doorChime(true); }
       if(state.doorsOpen && state.dwellUntil && state.simTime>=state.dwellUntil){
         // auto-close if player doesn't press Space
         state.doorsOpen=false; state.brake=0.2; state.dwellUntil=null; doorChime(false); brakeHiss();
@@ -2467,7 +2626,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
 
   function nearestSignalAspect(){ const sF=frontS(); let best=null, dBest=1e9; for(const sig of signals){ const d=sig.s-sF; if(d>=0 && d<dBest){ dBest=d; best=sig; } }
     return best ? (best.aspect==='red'?'RED':best.aspect==='yellow'?'YEL':'GRN') : '—'; }
-  function estimateETA(){ const st=stations[nextStationIndex]; if(!st) return '—'; const rem=Math.max(0, st.stopS-frontS()); const v=Math.max(0.1,state.speed); return nowStr(state.simTime + rem/v); }
+  function estimateETA(){ const st=stations[nextStationIndex]; if(!st) return '—'; const rem=Math.max(0, st.stopS-frontS()); const v=Math.max(0.1,Math.abs(state.speed)); return nowStr(state.simTime + rem/v); }
   function drawTimetable(){ const ctx=cab._ttCtx, c=cab._ttCanvas; ctx.fillStyle='#0c1420'; ctx.fillRect(0,0,c.width,c.height);
     ctx.fillStyle='#9bd1ff'; ctx.font='bold 34px system-ui'; ctx.fillText('Working Timetable',20,44);
     ctx.fillStyle='#cfe3ff'; ctx.font='bold 28px system-ui'; ctx.fillText(`Current time: ${nowStr(state.simTime)}`,20,88);
