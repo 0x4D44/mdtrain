@@ -1143,6 +1143,118 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         scenery.add(trunk,crown);
       }
 
+      const pagodaBasis=trackBasisAt(240);
+      const pagodaDir=new THREE.Vector3(pagodaBasis.dir.x,0,pagodaBasis.dir.z).normalize();
+      const pagodaPos=pagodaBasis.pos.clone().addScaledVector(pagodaBasis.normal,-32).addScaledVector(pagodaDir,18);
+      buildGoldenPagoda(pagodaPos, pagodaBasis.yaw, pagodaDir);
+
+      function buildGoldenPagoda(origin, yaw, forward){
+        const goldMat=new THREE.MeshStandardMaterial({color:0xe6bb51, roughness:0.32, metalness:0.6});
+        const roofMat=new THREE.MeshStandardMaterial({color:0x45311c, roughness:0.58, metalness:0.22});
+        const stoneMat=new THREE.MeshStandardMaterial({color:0x8f8370, roughness:0.85});
+        const glowMat=new THREE.MeshStandardMaterial({color:0xffdfa0, emissive:0xffc66c, emissiveIntensity:0.45, roughness:0.22, metalness:0.55});
+        const group=new THREE.Group();
+
+        const garden=new THREE.Mesh(new THREE.CylinderGeometry(6.4,6.4,0.12,32), new THREE.MeshStandardMaterial({color:0x3f4d2c, roughness:0.9}));
+        garden.position.y=0.06;
+        garden.receiveShadow=true;
+        group.add(garden);
+
+        const plinth=new THREE.Mesh(new THREE.CylinderGeometry(5.2,5.6,0.6,28), stoneMat);
+        plinth.position.y=0.3;
+        plinth.castShadow=plinth.receiveShadow=true;
+        group.add(plinth);
+
+        let tierBase=0.6;
+        const tiers=4;
+        for(let i=0;i<tiers;i++){
+          const scale=1 - i*0.17;
+          const column=new THREE.Mesh(new THREE.CylinderGeometry(0.75*scale,0.9*scale,1.4,16), goldMat);
+          column.position.y=tierBase + 0.7;
+          column.castShadow=column.receiveShadow=true;
+          group.add(column);
+
+          const roof=new THREE.Mesh(new THREE.ConeGeometry(4.0*scale,0.9,28), roofMat);
+          roof.position.y=column.position.y + 1.05;
+          roof.castShadow=roof.receiveShadow=true;
+          group.add(roof);
+
+          const fringe=new THREE.Mesh(new THREE.TorusGeometry(2.8*scale,0.06,16,32), glowMat);
+          fringe.rotation.x=Math.PI/2;
+          fringe.position.y=column.position.y + 0.3;
+          group.add(fringe);
+
+          tierBase += 1.5;
+        }
+
+        const spire=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.28,2.6,18), goldMat);
+        spire.position.y=tierBase + 1.4;
+        spire.castShadow=spire.receiveShadow=true;
+        group.add(spire);
+
+        const finial=new THREE.Mesh(new THREE.SphereGeometry(0.34,18,12), glowMat);
+        finial.position.y=spire.position.y + 1.2;
+        finial.castShadow=finial.receiveShadow=true;
+        group.add(finial);
+
+        const tip=new THREE.Mesh(new THREE.ConeGeometry(0.36,0.9,12), goldMat);
+        tip.position.y=finial.position.y + 0.8;
+        tip.castShadow=tip.receiveShadow=true;
+        group.add(tip);
+
+        const lanternGlow=new THREE.PointLight(0xffd276,1.8,26);
+        lanternGlow.position.y=spire.position.y;
+        group.add(lanternGlow);
+
+        group.position.copy(origin);
+        group.rotation.y=yaw + 0.12;
+        scenery.add(group);
+
+        const forwardVec=forward.clone().setY(0).normalize();
+        const lateral=new THREE.Vector3(-forwardVec.z,0,forwardVec.x);
+        const approach=new THREE.Mesh(new THREE.BoxGeometry(11,0.12,3.4), new THREE.MeshStandardMaterial({color:0x6a5b3f, roughness:0.82}));
+        approach.position.copy(origin.clone().addScaledVector(forwardVec,-6));
+        approach.position.y=0.06;
+        approach.rotation.y=yaw;
+        approach.receiveShadow=true;
+        scenery.add(approach);
+
+        const step=new THREE.Mesh(new THREE.BoxGeometry(5.4,0.18,2.2), stoneMat);
+        step.position.copy(origin.clone().addScaledVector(forwardVec,-3.4));
+        step.position.y=0.09;
+        step.rotation.y=yaw;
+        step.receiveShadow=true;
+        scenery.add(step);
+
+        const lanternStemMat=new THREE.MeshStandardMaterial({color:0x3f2d1d, roughness:0.55});
+        [-2.6,2.6].forEach(offset=>{
+          const basePos=origin.clone().addScaledVector(forwardVec,-3.2).addScaledVector(lateral, offset);
+          const post=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.18,2.3,12), lanternStemMat);
+          post.position.set(basePos.x,1.15,basePos.z);
+          post.castShadow=post.receiveShadow=true;
+          const lamp=new THREE.Mesh(new THREE.SphereGeometry(0.35,16,16), glowMat);
+          lamp.position.set(basePos.x,2.2,basePos.z);
+          lamp.castShadow=lamp.receiveShadow=true;
+          scenery.add(post,lamp);
+          const light=new THREE.PointLight(0xffd78f,1.1,18);
+          light.position.set(basePos.x,2.2,basePos.z);
+          scenery.add(light);
+        });
+
+        const pineMat=new THREE.MeshStandardMaterial({color:0x2d5030, roughness:0.6});
+        const trunkMat=new THREE.MeshStandardMaterial({color:0x654321, roughness:0.75});
+        [-6.2,6.2].forEach(offset=>{
+          const foot=origin.clone().addScaledVector(forwardVec,1.4).addScaledVector(lateral, offset);
+          const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.4,3.4,10), trunkMat);
+          trunk.position.set(foot.x,1.7,foot.z);
+          trunk.castShadow=trunk.receiveShadow=true;
+          const crown=new THREE.Mesh(new THREE.ConeGeometry(1.6,4.2,14), pineMat);
+          crown.position.set(foot.x,3.9,foot.z);
+          crown.castShadow=crown.receiveShadow=true;
+          scenery.add(trunk,crown);
+        });
+      }
+
       function createGlowTexture(hex){
         const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
         const grd=g.createRadialGradient(64,64,0,64,64,64);
