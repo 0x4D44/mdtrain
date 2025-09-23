@@ -1797,7 +1797,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         scenery.add(roof);
       });
 
-      const rearPos=centreBasis.pos.clone().addScaledVector(dir,-28);
+      const rearPos=centreBasis.pos.clone().addScaledVector(dir, 80);
       const rear=new THREE.Mesh(new THREE.BoxGeometry(54,20,12), wingMat);
       rear.position.set(rearPos.x,10,rearPos.z);
       rear.rotation.y=centreBasis.yaw;
@@ -1807,7 +1807,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       const rearGlass=new THREE.Mesh(new THREE.PlaneGeometry(50,14), glassMaterial.clone());
       rearGlass.position.copy(rearPos);
       rearGlass.position.y=11;
-      rearGlass.position.addScaledVector(dir,-(12/2+0.05));
+      rearGlass.position.addScaledVector(dir, (12/2+0.05));
       rearGlass.rotation.y=centreBasis.yaw;
       scenery.add(rearGlass);
 
@@ -2523,6 +2523,11 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       let a=maxA*effThrottle - maxB*state.brake - drag*dragDir;
       if(state.eBrake && state.speed!==0) a -= 2.0*Math.sign(state.speed);
       const holdSign=Math.sign(state.speed||effThrottle||state.direction||1);
+      const wantsHold=Math.abs(state.speed)<0.05 && Math.abs(effThrottle)<0.05 && state.brake>0.05;
+      if(wantsHold){
+        a=0;
+        state.speed=0;
+      }
       if(state.doorsOpen){
         if(holdSign>=0) a = Math.min(a, -1.5);
         else a = Math.max(a, 1.5);
