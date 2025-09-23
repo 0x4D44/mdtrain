@@ -28,12 +28,26 @@
     background:linear-gradient(180deg, rgba(0,0,0,.7), rgba(0,0,0,.85));
     color:white; text-align:center; padding:20px;
   }
-  #overlay .panel { background:#111927; border:1px solid #2a3a55; border-radius:12px; padding:20px; max-width:560px; }
-  #overlay h1 { margin:0 0 10px; font-size:28px; }
+  #overlay .panel, #jump-menu .panel { background:#111927; border:1px solid #2a3a55; border-radius:12px; padding:20px; max-width:560px; }
+  #overlay h1, #jump-menu h1 { margin:0 0 10px; font-size:28px; }
   #overlay p { margin:8px 0; line-height:1.4; white-space:pre-line;}
-  #overlay .btn { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px;
+  #overlay .btn, #jump-menu .btn { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px;
                   background:#2266ff; cursor:pointer; font-weight:700; }
   canvas { display:block; }
+  #jump-menu {
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:7;
+    background:linear-gradient(180deg, rgba(8,12,20,0.82), rgba(8,12,20,0.92));
+    color:#e9eef6; text-align:left; padding:20px;
+  }
+  #jump-menu h1 { text-align:center; color:#fff; }
+  #jump-list { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+  .jump-item {
+    background:#192434; border:1px solid #2e3a4f; border-radius:10px; padding:10px 14px;
+    cursor:pointer; font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    transition:background 0.15s ease, transform 0.15s ease;
+  }
+  .jump-item span { font-size:13px; color:#9db3d4; }
+  .jump-item:hover { background:#223147; transform:translateY(-1px); }
 </style>
 </head>
 <body>
@@ -62,7 +76,7 @@
 </div>
 
 <div id="tooltip">
-  <div><b>Controls</b>: LMB look • ESC recenter • W/S throttle • A/D brake • Q acknowledge AWS • Space open/close doors • R reset after incident</div>
+  <div><b>Controls</b>: LMB look • ESC recenter • W/S throttle • A/D brake • Q acknowledge AWS • Space open/close doors • R reset after incident • J jump menu</div>
   <div style="margin-top:6px;" class="muted">
     When stopped at the STOP board, doors will open. <b>Dwell</b> counts down (default 8 s). At 0 s you can press <b>Space</b> to close (or they’ll auto‑close). The cab “DOORS” lamp is <b>amber</b> when open, <b>green</b> when interlock is made.
   </div>
@@ -74,6 +88,14 @@
     <h1 id="ov-title">Incident</h1>
     <p id="ov-text">—</p>
     <div class="btn" id="ov-btn">Acknowledge (R)</div>
+  </div>
+</div>
+
+<div id="jump-menu">
+  <div class="panel">
+    <h1>Jump to Station</h1>
+    <div id="jump-list"></div>
+    <div class="btn" id="jump-close">Cancel (Esc)</div>
   </div>
 </div>
 
@@ -98,11 +120,19 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
+
+  const animatedForklifts=[];
+  const smokePlumes=[];
+  const kineticInstallations=[];
+  const hoverPods=[];
 
   const hemi = new THREE.HemisphereLight(0xbfdfff, 0x9ecb7a, 0.85); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 0.75);
   sun.position.set(120,220,-160); sun.castShadow = true;
+  sun.shadow.bias = -0.00045;
+  sun.shadow.normalBias = 0.045;
   sun.shadow.camera.left = -600; sun.shadow.camera.right = 600;
   sun.shadow.camera.top = 600; sun.shadow.camera.bottom = -600;
   scene.add(sun);
@@ -146,7 +176,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     return c; })());
   grassTex.wrapS=grassTex.wrapT=THREE.RepeatWrapping; grassTex.repeat.set(200,200); grassTex.anisotropy=4; grassTex.needsUpdate=true;
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(9000,4500), new THREE.MeshStandardMaterial({map:grassTex, roughness:0.95}));
-  ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+  ground.rotation.x=-Math.PI/2; ground.position.y=-0.05; ground.receiveShadow=true; scene.add(ground);
 
   // ---------- Track (ballast -> sleepers -> rails) ----------
   (function buildTrack(){
@@ -192,7 +222,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   })();
 
   // ---------- Speed limits ----------
-  const speedSections=[{start:0,mph:30},{start:900,mph:45},{start:1800,mph:60},{start:2700,mph:45}];
+  const speedSections=[{start:0,mph:30},{start:900,mph:45},{start:1800,mph:60},{start:2700,mph:45},{start:3050,mph:25}];
   function currentLimitAtS(s){ let v=speedSections[0].mph; for(const sec of speedSections){ if(s>=sec.start) v=sec.mph; } return v; }
   (function buildSpeedSigns(){
     const poleMat=new THREE.MeshStandardMaterial({color:0x9aa3ad,metalness:0.6,roughness:0.3});
@@ -220,6 +250,36 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     {name:'Eastbank',stopS:3250,platformStart:3200,platformEnd:3330,due:timetableBase+570, side:1 }
   ];
   let nextStationIndex=1;
+
+  const jumpMenu=document.getElementById('jump-menu'), jumpList=document.getElementById('jump-list'), jumpClose=document.getElementById('jump-close');
+  let jumpMenuOpen=false;
+  function buildJumpMenu(){
+    jumpList.innerHTML='';
+    stations.forEach((st,i)=>{
+      const item=document.createElement('div');
+      item.className='jump-item';
+      const label=document.createElement('span');
+      label.textContent=nowStr(st.due);
+      item.textContent=`${i+1}. ${st.name}`;
+      item.appendChild(label);
+      item.addEventListener('click', ()=>jumpToStation(i));
+      jumpList.appendChild(item);
+    });
+  }
+  buildJumpMenu();
+  function showJumpMenu(){
+    if(jumpMenuOpen) return;
+    jumpMenuOpen=true;
+    jumpMenu.style.display='flex';
+    if(document.exitPointerLock) document.exitPointerLock();
+  }
+  function hideJumpMenu(){
+    if(!jumpMenuOpen) return;
+    jumpMenuOpen=false;
+    jumpMenu.style.display='none';
+  }
+  jumpClose.addEventListener('click', hideJumpMenu);
+  jumpMenu.addEventListener('click', e=>{ if(e.target===jumpMenu) hideJumpMenu(); });
 
   (function buildPlatforms(){
     const platMat=new THREE.MeshStandardMaterial({color:0xb7b7b7,roughness:0.95});
@@ -361,6 +421,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     addIndustrialEstate();
     addFarmClusters();
     addWestfordHub();
+    addCityCentreLake();
     addPassengers();
     addPlatformProps();
     addSuburbanStrip();
@@ -369,7 +430,10 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     addStartScene();
     addHighriseCluster();
     addBridges();
+    addMountains();
     addBillboards();
+    addEastbankTerminus();
+    addVictoriaStreetScene();
 
     function scatterTrees(){
       const trunkGeo=new THREE.CylinderGeometry(0.22,0.32,4.8,8); trunkGeo.translate(0,2.4,0);
@@ -651,6 +715,151 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       const fence=new THREE.Group();
       for(const edge of [-35,35]){
         const run=new THREE.Mesh(new THREE.PlaneGeometry(70,1.6), fenceMat);
+        run.position.copy(yardCenter).addScaledVector(normal,-20).addScaledVector(dir,edge);
+        run.position.y=0.8;
+        run.rotation.y=Math.atan2(dir.x,dir.z)+Math.PI/2;
+        fence.add(run);
+      }
+      for(const offset of [-35,35]){
+        const runFront=new THREE.Mesh(new THREE.PlaneGeometry(40,1.6), fenceMat);
+        runFront.position.copy(yardCenter).addScaledVector(normal,offset).addScaledVector(dir,35);
+        runFront.position.y=0.8;
+        runFront.rotation.y=Math.atan2(dir.x,dir.z);
+        fence.add(runFront);
+        const runBack=runFront.clone();
+        runBack.position.copy(yardCenter).addScaledVector(normal,offset).addScaledVector(dir,-35);
+        fence.add(runBack);
+      }
+      scenery.add(fence);
+
+      function makeSkip(pos, yaw){
+        const group=new THREE.Group();
+        const shell=new THREE.Mesh(new THREE.BoxGeometry(4,1.8,2.2), new THREE.MeshStandardMaterial({color:0xf4a261, roughness:0.6}));
+        shell.position.set(0,0.9,0);
+        shell.castShadow=shell.receiveShadow=true;
+        const lip=new THREE.Mesh(new THREE.BoxGeometry(4.2,0.2,2.4), new THREE.MeshStandardMaterial({color:0xe76f51, roughness:0.5}));
+        lip.position.set(0,1.8,0);
+        group.add(shell,lip);
+        group.position.copy(pos);
+        group.rotation.y=yaw;
+        scenery.add(group);
+      }
+
+      function makeLorry(pos, yaw){
+        const trailer=new THREE.Mesh(new THREE.BoxGeometry(9,2.8,2.8), new THREE.MeshStandardMaterial({color:0xcad3df, roughness:0.5}));
+        const cab=new THREE.Mesh(new THREE.BoxGeometry(3,2.4,2.8), new THREE.MeshStandardMaterial({color:0x2f3a4b, roughness:0.4, metalness:0.2}));
+        const roof=new THREE.Mesh(new THREE.BoxGeometry(3,0.6,2.9), new THREE.MeshStandardMaterial({color:0xf2f4ff, roughness:0.2}));
+        trailer.position.set(0,1.4,0); cab.position.set(-5.5,1.2,0); roof.position.set(-5.5,2.1,0);
+        [trailer,cab,roof].forEach(mesh=>{ mesh.castShadow=mesh.receiveShadow=true; });
+        const group=new THREE.Group(); group.add(trailer,cab,roof);
+        group.position.copy(pos); group.rotation.y=yaw;
+        scenery.add(group);
+      }
+
+      function makeCanisterCluster(pos){
+        const cluster=new THREE.Group();
+        for(let i=0;i<3;i++){
+          const cyl=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,1.2,12), new THREE.MeshStandardMaterial({color:0xd1495b, roughness:0.45, metalness:0.15}));
+          cyl.position.set(i*0.6-0.6,0.6,0);
+          cyl.castShadow=cyl.receiveShadow=true;
+          const cap=new THREE.Mesh(new THREE.SphereGeometry(0.32,12,12,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0xf8e3a1, roughness:0.3}));
+          cap.position.copy(cyl.position); cap.position.y=1.2;
+          cluster.add(cyl,cap);
+        }
+        cluster.position.copy(pos);
+        scenery.add(cluster);
+      }
+
+      function makePalletStack(pos){
+        const palletMat=new THREE.MeshStandardMaterial({color:0xb68b5e, roughness:0.7});
+        const stack=new THREE.Group();
+        for(let i=0;i<3;i++){
+          const pal=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.2,1), palletMat);
+          pal.position.y=i*0.22;
+          pal.castShadow=pal.receiveShadow=true;
+          stack.add(pal);
+        }
+        stack.position.copy(pos);
+        scenery.add(stack);
+      }
+
+      function createForklift(origin, pathDir, span){
+        const chassis=new THREE.Mesh(new THREE.BoxGeometry(2,0.9,1.2), new THREE.MeshStandardMaterial({color:0x2f3138, roughness:0.65}));
+        chassis.position.y=0.45;
+        const mast=new THREE.Mesh(new THREE.BoxGeometry(0.3,1.8,0.3), new THREE.MeshStandardMaterial({color:0x454a52, roughness:0.55}));
+        mast.position.set(0.6,1.2,0);
+        const forks=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.08,0.8), new THREE.MeshStandardMaterial({color:0xb0b6bd, roughness:0.3, metalness:0.4}));
+        forks.position.set(1.1,0.35,0);
+        const cab=new THREE.Mesh(new THREE.BoxGeometry(1.1,1.2,1.1), new THREE.MeshStandardMaterial({color:0xf6c667, roughness:0.5}));
+        cab.position.set(-0.2,1.1,0);
+        const forklift=new THREE.Group();
+        forklift.add(chassis,mast,forks,cab);
+        forklift.position.copy(origin);
+        forklift.castShadow=forklift.receiveShadow=true;
+        scenery.add(forklift);
+
+        animatedForklifts.push({
+          group:forklift,
+          origin:origin.clone(),
+          dir:pathDir.clone().setY(0),
+          span:span,
+          speed:0.4+rand(0.2,0.5),
+          phase:rand(0,10),
+          yaw:Math.atan2(pathDir.x,pathDir.z)
+        });
+      }
+
+      function createSmokeStack(pos){
+        const stack=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,4.2,14), new THREE.MeshStandardMaterial({color:0x5f656d, roughness:0.55}));
+        stack.position.copy(pos); stack.position.y=2.1;
+        stack.castShadow=stack.receiveShadow=true;
+        scenery.add(stack);
+        const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:makeSmokeTex(), transparent:true, opacity:0.6, depthWrite:false}));
+        sprite.position.copy(pos); sprite.position.y=4.2;
+        sprite.scale.set(2.2,2.2,2.2);
+        scenery.add(sprite);
+        smokePlumes.push({sprite, origin:pos.clone().setY(4.2), riseSpeed:0.6, baseScale:2.2, cycle:4.5, phase:rand(0,4), material:sprite.material, maxOpacity:0.6});
+      }
+
+      const skipPositions=[
+        yardCenter.clone().addScaledVector(normal,-14).addScaledVector(dir,15),
+        yardCenter.clone().addScaledVector(normal,-18).addScaledVector(dir,5),
+        yardCenter.clone().addScaledVector(normal,-22).addScaledVector(dir,-6)
+      ];
+      skipPositions.forEach((pos,i)=>makeSkip(pos, yardBasis.yaw + (i%2?Math.PI/8:-Math.PI/10)));
+
+      makeLorry(yardCenter.clone().addScaledVector(dir,-20), yardBasis.yaw+Math.PI);
+      makeLorry(yardCenter.clone().addScaledVector(normal,-26).addScaledVector(dir,12), yardBasis.yaw+Math.PI/2);
+
+      makeCanisterCluster(yardCenter.clone().addScaledVector(normal,-10).addScaledVector(dir,-8));
+      makeCanisterCluster(yardCenter.clone().addScaledVector(normal,-17).addScaledVector(dir,22));
+
+      makePalletStack(yardCenter.clone().addScaledVector(normal,-5).addScaledVector(dir,6));
+      makePalletStack(yardCenter.clone().addScaledVector(normal,-6).addScaledVector(dir,9));
+
+      createForklift(yardCenter.clone().addScaledVector(dir,5).addScaledVector(normal,-18), dir, 14);
+      createForklift(yardCenter.clone().addScaledVector(dir,-8).addScaledVector(normal,-22), dir.clone().multiplyScalar(-1), 12);
+
+      createSmokeStack(yardCenter.clone().addScaledVector(normal,-12).addScaledVector(dir,18));
+    }
+
+    function addStartIndustrialYard(){
+      const yardBasis=trackBasisAt(150);
+      const normal=yardBasis.normal;
+      const dir=new THREE.Vector3(yardBasis.dir.x,0,yardBasis.dir.z).normalize();
+      const yardCenter=yardBasis.pos.clone().addScaledVector(normal,-20).addScaledVector(dir,30);
+
+      const yardGround=new THREE.Mesh(new THREE.PlaneGeometry(70,40), new THREE.MeshStandardMaterial({color:0x42474f, roughness:0.92}));
+      yardGround.rotation.x=-Math.PI/2;
+      yardGround.position.copy(yardCenter);
+      yardGround.receiveShadow=true;
+      scenery.add(yardGround);
+
+      const fenceTex=makeFenceTex(); fenceTex.wrapS=fenceTex.wrapT=THREE.RepeatWrapping; fenceTex.repeat.set(6,1);
+      const fenceMat=new THREE.MeshStandardMaterial({map:fenceTex, transparent:true, roughness:0.85});
+      const fence=new THREE.Group();
+      for(const edge of [-35,35]){
+        const run=new THREE.Mesh(new THREE.PlaneGeometry(70,1.6), fenceMat);
         const offsetDir=dir.clone().multiplyScalar(edge);
         run.position.copy(yardCenter).addScaledVector(normal,-20).add(offsetDir);
         run.position.y=0.8;
@@ -815,11 +1024,142 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       }
     }
 
+    function addCityCentreLake(){
+      const lakeBasis=trackBasisAt(1500);
+      const normal=lakeBasis.normal;
+      const dir=new THREE.Vector3(lakeBasis.dir.x,0,lakeBasis.dir.z).normalize();
+      const centre=lakeBasis.pos.clone().addScaledVector(normal, -34).addScaledVector(dir, -20);
+
+      const lakeRadiusX=28, lakeRadiusZ=18;
+      const lakeGeom=new THREE.CircleGeometry(lakeRadiusX, 48);
+      // scale to ellipse via matrix
+      lakeGeom.applyMatrix4(new THREE.Matrix4().makeScale(1,1,lakeRadiusZ/lakeRadiusX));
+      const lakeMat=new THREE.MeshStandardMaterial({color:0x317aac, roughness:0.1, metalness:0.0, transparent:true, opacity:0.92});
+      const lake=new THREE.Mesh(lakeGeom, lakeMat);
+      lake.rotation.x=-Math.PI/2;
+      lake.position.set(centre.x,0.02,centre.z);
+      lake.receiveShadow=true;
+      scenery.add(lake);
+
+      const pathMat=new THREE.MeshStandardMaterial({color:0xb7b1a5, roughness:0.85});
+      const outerPath=new THREE.Mesh(new THREE.RingGeometry(lakeRadiusX+4, lakeRadiusX+7, 64,1), pathMat);
+      outerPath.rotation.x=-Math.PI/2;
+      outerPath.position.set(centre.x,0.025,centre.z);
+      scenery.add(outerPath);
+
+      const innerPath=new THREE.Mesh(new THREE.RingGeometry(lakeRadiusX-6, lakeRadiusX-3, 48,1), pathMat);
+      innerPath.rotation.x=-Math.PI/2;
+      innerPath.position.copy(outerPath.position);
+      scenery.add(innerPath);
+
+      // Fountain
+      const fountainBase=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.6,0.6,24), new THREE.MeshStandardMaterial({color:0xd6dadf, roughness:0.4}));
+      fountainBase.position.set(centre.x,0.3,centre.z);
+      fountainBase.castShadow=fountainBase.receiveShadow=true;
+      scenery.add(fountainBase);
+
+      const fountainSpray=new THREE.Mesh(new THREE.ConeGeometry(2.0,5.6,24,1,true), new THREE.MeshStandardMaterial({color:0x9dd9ff, transparent:true, opacity:0.45, roughness:0.05}));
+      fountainSpray.position.set(centre.x,3.5,centre.z);
+      fountainSpray.rotation.x=Math.PI;
+      scenery.add(fountainSpray);
+
+      const fountainGlowTex=createGlowTexture(0x9ad7ff);
+      const fountainMist=new THREE.Sprite(new THREE.SpriteMaterial({map:fountainGlowTex, color:0xffffff, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+      fountainMist.position.set(centre.x,5.6,centre.z);
+      fountainMist.scale.set(6,6,6);
+      scenery.add(fountainMist);
+
+      const fountainLight=new THREE.PointLight(0x7fd4ff, 1.6, 28);
+      fountainLight.position.set(centre.x,5.2,centre.z);
+      scenery.add(fountainLight);
+
+      // Ducks
+      const duckColors=[0xffc857,0xffb347,0xffffff];
+      for(let i=0;i<8;i++){
+        const angle=Math.random()*Math.PI*2;
+        const radius=(Math.random()*0.5+0.25)*Math.min(lakeRadiusX,lakeRadiusZ);
+        const pos=new THREE.Vector3(
+          centre.x + Math.cos(angle)*radius,
+          0.08,
+          centre.z + Math.sin(angle)*radius*(lakeRadiusZ/lakeRadiusX)
+        );
+        const body=new THREE.Mesh(new THREE.SphereGeometry(0.35,12,12), new THREE.MeshStandardMaterial({color:choice(duckColors), roughness:0.3}));
+        body.position.copy(pos);
+        const head=new THREE.Mesh(new THREE.SphereGeometry(0.18,12,12), new THREE.MeshStandardMaterial({color:0xf6e6c9, roughness:0.35}));
+        head.position.set(pos.x+0.22, pos.y+0.18, pos.z);
+        const beak=new THREE.Mesh(new THREE.ConeGeometry(0.08,0.18,8), new THREE.MeshStandardMaterial({color:0xff6f3c, roughness:0.2}));
+        beak.position.set(head.position.x+0.1, head.position.y, head.position.z);
+        beak.rotation.z=-Math.PI/2;
+        scenery.add(body,head,beak);
+      }
+
+      // Path walkers
+      const walkerBody=new THREE.CylinderGeometry(0.22,0.26,1.2,12);
+      const walkerHead=new THREE.SphereGeometry(0.24,12,12);
+      const walkerLeg=new THREE.CylinderGeometry(0.1,0.1,0.6,10);
+      const coats=[0xff9f1c,0x52a2ff,0xff6f91,0x7bc47f,0xd785ff];
+      const trousers=[0x2b2f36,0x343f4f,0x485169];
+      const walkers=14;
+      for(let i=0;i<walkers;i++){
+        const angle=i*(Math.PI*2/walkers) + rand(-0.2,0.2);
+        const radius=lakeRadiusX+5.5 + rand(-0.8,0.8);
+        const pos=new THREE.Vector3(
+          centre.x + Math.cos(angle)*radius,
+          0,
+          centre.z + Math.sin(angle)*radius*(lakeRadiusZ/lakeRadiusX)
+        );
+        const group=new THREE.Group();
+        const body=new THREE.Mesh(walkerBody, new THREE.MeshStandardMaterial({color:choice(coats), roughness:0.6}));
+        body.position.y=1.0; body.castShadow=body.receiveShadow=true;
+        const head=new THREE.Mesh(walkerHead, new THREE.MeshStandardMaterial({color:0xf4dbc3, roughness:0.45}));
+        head.position.y=1.7; head.castShadow=head.receiveShadow=true;
+        const legL=new THREE.Mesh(walkerLeg, new THREE.MeshStandardMaterial({color:choice(trousers), roughness:0.7}));
+        const legR=legL.clone();
+        legL.position.set(-0.09,0.3,0);
+        legR.position.set(0.09,0.3,0);
+        group.add(body,head,legL,legR);
+        group.position.set(pos.x,0,pos.z);
+        group.rotation.y=angle + Math.PI/2;
+        scenery.add(group);
+      }
+
+      // Tree ring behind paths
+      const treeCount=36;
+      for(let i=0;i<treeCount;i++){
+        const angle=i*(Math.PI*2/treeCount)+rand(-0.1,0.1);
+        const radius=lakeRadiusX+12 + rand(-1.2,1.2);
+        const pos=new THREE.Vector3(
+          centre.x + Math.cos(angle)*radius,
+          0,
+          centre.z + Math.sin(angle)*radius*(lakeRadiusZ/lakeRadiusX)
+        );
+        const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.32,5.2,10), new THREE.MeshStandardMaterial({color:0x6b4b2a, roughness:0.9}));
+        trunk.position.set(pos.x,2.6,pos.z);
+        trunk.castShadow=trunk.receiveShadow=true;
+        const crown=new THREE.Mesh(new THREE.DodecahedronGeometry(2.8,1), new THREE.MeshStandardMaterial({color:0x2f7536, roughness:0.55}));
+        crown.position.set(pos.x,5.7,pos.z);
+        crown.castShadow=true;
+        scenery.add(trunk,crown);
+      }
+
+      function createGlowTexture(hex){
+        const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+        const grd=g.createRadialGradient(64,64,0,64,64,64);
+        const r=(hex>>16)&255, m=(hex>>8)&255, b=hex&255;
+        grd.addColorStop(0,`rgba(${r},${m},${b},0.85)`);
+        grd.addColorStop(0.5,`rgba(${r},${m},${b},0.35)`);
+        grd.addColorStop(1,'rgba(0,0,0,0)');
+        g.fillStyle=grd; g.beginPath(); g.arc(64,64,64,0,Math.PI*2); g.fill();
+        return new THREE.CanvasTexture(c);
+      }
+    }
+
     function addPlatformProps(){
       const lampMat=new THREE.MeshStandardMaterial({color:0xdfe8f5, emissive:0x1c2734, emissiveIntensity:0.15, roughness:0.6});
       const lampStemMat=new THREE.MeshStandardMaterial({color:0x525a65, roughness:0.45});
       const binMat=new THREE.MeshStandardMaterial({color:0x1f2733, roughness:0.55});
       const signMat=new THREE.MeshStandardMaterial({color:0xf4f8ff, emissive:0x13213a, emissiveIntensity:0.12});
+      const signPostMat=new THREE.MeshStandardMaterial({color:0x727d8a, roughness:0.5});
       stations.forEach(st=>{
         const side = st.side ?? 1;
         const span=st.platformEnd-st.platformStart;
@@ -844,7 +1184,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           }
         }
 
-        const signCount=Math.max(1, Math.floor(span/90));
+        const signCount=Math.max(2, Math.floor(span/60));
         for(let i=0;i<signCount;i++){
           const s=st.platformStart + 6 + i*(span-12)/Math.max(1,signCount-1);
           const basis=trackBasisAt(s);
@@ -861,6 +1201,13 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           sign.material.map=tex;
           sign.castShadow=sign.receiveShadow=true;
           scenery.add(sign);
+
+          const post=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,2.8,14), signPostMat);
+          post.position.copy(pos);
+          post.position.y=1.4;
+          post.rotation.y=sign.rotation.y;
+          post.castShadow=post.receiveShadow=true;
+          scenery.add(post);
         }
       });
     }
@@ -947,6 +1294,73 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
         roof.position.copy(pos); roof.position.y=1.5; roof.rotation.y=basis.yaw;
         scenery.add(body,roof);
       }
+
+      // Futuristic plaza with kinetic sculptures to the right of the track
+      const showcaseBasis=trackBasisAt(18);
+      const showcasePos=showcaseBasis.pos.clone().addScaledVector(normal,9.5).addScaledVector(dir,-0.8);
+      const plazaMat=new THREE.MeshStandardMaterial({color:0x182431, roughness:0.35, metalness:0.7, emissive:0x0e1f36, emissiveIntensity:0.25});
+      const plaza=new THREE.Mesh(new THREE.RingGeometry(3.2,6.2,48,1), plazaMat);
+      plaza.rotation.x=-Math.PI/2;
+      plaza.position.copy(showcasePos);
+      plaza.position.y=0.03;
+      plaza.receiveShadow=true;
+      scenery.add(plaza);
+
+      const plinthMat=new THREE.MeshStandardMaterial({color:0x242d3c, roughness:0.6, metalness:0.2});
+      const plinth=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.4,0.8,32), plinthMat);
+      plinth.position.copy(showcasePos);
+      plinth.position.y=0.4;
+      plinth.castShadow=plinth.receiveShadow=true;
+      scenery.add(plinth);
+
+      const shardOffsets=[
+        new THREE.Vector3(2.8,0,0.6),
+        new THREE.Vector3(-2.3,0,1.8),
+        new THREE.Vector3(0.4,0,-2.6)
+      ];
+      shardOffsets.forEach((offset,i)=>{
+        const shardGeo=new THREE.CylinderGeometry(0.18,0.5,6.5 + i*1.2,24,1,true);
+        const shardMat=new THREE.MeshStandardMaterial({color:0x4da3ff, emissive:0x3b74f2, emissiveIntensity:0.6 + i*0.1, roughness:0.15, metalness:0.65, transparent:true, opacity:0.72, side:THREE.DoubleSide});
+        const shard=new THREE.Mesh(shardGeo, shardMat);
+        const pos=showcasePos.clone().add(offset);
+        shard.position.set(pos.x, 3.4 + i*0.6, pos.z);
+        shard.rotation.y=startBasis.yaw + i*0.6;
+        shard.castShadow=true;
+        scenery.add(shard);
+        kineticInstallations.push({mesh:shard, speed:0.1 + i*0.05});
+      });
+
+      const ringColors=[0xffd45e,0x9b6dff,0x5af5ff];
+      ringColors.forEach((clr, idx)=>{
+        const ring=new THREE.Mesh(new THREE.TorusGeometry(2.4 + idx*0.55,0.12,16,64),
+          new THREE.MeshStandardMaterial({color:clr, emissive:clr, emissiveIntensity:0.35 + idx*0.1, metalness:0.4, roughness:0.2}));
+        ring.position.copy(showcasePos);
+        ring.position.y=2.3 + idx*0.4;
+        ring.rotation.x=Math.PI/2;
+        ring.castShadow=true;
+        scenery.add(ring);
+        kineticInstallations.push({mesh:ring, speed:0.35 + idx*0.12});
+      });
+
+      const podPositions=[
+        showcasePos.clone().add(new THREE.Vector3(1.6,2.4,-1.4)),
+        showcasePos.clone().add(new THREE.Vector3(-1.2,2.8,1.6)),
+        showcasePos.clone().add(new THREE.Vector3(0.6,3.2,0.2))
+      ];
+      podPositions.forEach((pos,i)=>{
+        const pod=new THREE.Mesh(new THREE.IcosahedronGeometry(0.6 + i*0.08,1), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0x66ccff, emissiveIntensity:0.8 + i*0.1, roughness:0.12, metalness:0.3}));
+        pod.position.copy(pos);
+        pod.castShadow=true;
+        scenery.add(pod);
+        hoverPods.push({mesh:pod, baseY:pos.y, amp:0.25 + i*0.08, speed:1.2 + i*0.25, phase:rand(0,Math.PI*2)});
+      });
+
+      const beamMat=new THREE.MeshStandardMaterial({color:0xff8c48, emissive:0xff6f3c, emissiveIntensity:0.55, transparent:true, opacity:0.65, side:THREE.DoubleSide});
+      const beam=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,5.4,12,1,true), beamMat);
+      beam.position.copy(showcasePos);
+      beam.position.y=3.6;
+      scenery.add(beam);
+      kineticInstallations.push({mesh:beam, speed:0.18});
     }
 
     function addPassengers(){
@@ -1012,6 +1426,50 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           roof.castShadow=roof.receiveShadow=true; scenery.add(roof);
         }
       });
+
+      // Iconic landmark cluster beyond City Centre
+      const shardBasis=trackBasisAt(1820);
+      const shardPos=shardBasis.pos.clone().addScaledVector(shardBasis.normal,-58);
+      const shardMaterial=new THREE.MeshStandardMaterial({color:0x7fb7ff, emissive:0x244a7a, emissiveIntensity:0.25, roughness:0.2, metalness:0.65, transparent:true, opacity:0.82});
+      const shard=new THREE.Mesh(new THREE.ConeGeometry(10,90,6,1,false), shardMaterial);
+      shard.position.set(shardPos.x,45,shardPos.z);
+      shard.rotation.y=shardBasis.yaw + Math.PI/6;
+      shard.castShadow=true; shard.receiveShadow=true;
+      scenery.add(shard);
+
+      const walkieBasis=trackBasisAt(1920);
+      const walkiePos=walkieBasis.pos.clone().addScaledVector(walkieBasis.normal,52);
+      const walkieGeo=new THREE.CylinderGeometry(10,14,70,32,1,true);
+      const walkieMat=new THREE.MeshStandardMaterial({color:0xd9e1f2, roughness:0.35, metalness:0.55});
+      const walkie=new THREE.Mesh(walkieGeo, walkieMat);
+      walkie.position.set(walkiePos.x,35,walkiePos.z);
+      walkie.rotation.y=walkieBasis.yaw + 0.2;
+      walkie.castShadow=walkie.receiveShadow=true;
+      scenery.add(walkie);
+
+      const walkieCap=new THREE.Mesh(new THREE.ConeGeometry(11,8,24,1,true), new THREE.MeshStandardMaterial({color:0xf7f9ff, roughness:0.25, metalness:0.4}));
+      walkieCap.position.set(walkiePos.x, walkie.position.y + 38, walkiePos.z);
+      walkieCap.rotation.y=walkie.rotation.y;
+      walkieCap.castShadow=walkieCap.receiveShadow=true;
+      scenery.add(walkieCap);
+
+      const needleBasis=trackBasisAt(2050);
+      const needlePos=needleBasis.pos.clone().addScaledVector(needleBasis.normal,-64);
+      const needleShaft=new THREE.Mesh(new THREE.CylinderGeometry(2.2,3.2,82,24), new THREE.MeshStandardMaterial({color:0xbac4d6, roughness:0.4, metalness:0.3}));
+      needleShaft.position.set(needlePos.x,41,needlePos.z);
+      needleShaft.castShadow=needleShaft.receiveShadow=true;
+      scenery.add(needleShaft);
+
+      const needleDish=new THREE.Mesh(new THREE.TorusGeometry(12,1.2,20,64), new THREE.MeshStandardMaterial({color:0xffe29a, emissive:0xffb347, emissiveIntensity:0.35, roughness:0.25}));
+      needleDish.position.set(needlePos.x, needleShaft.position.y + 25, needlePos.z);
+      needleDish.rotation.x=Math.PI/2;
+      needleDish.castShadow=needleDish.receiveShadow=true;
+      scenery.add(needleDish);
+
+      const needleCrown=new THREE.Mesh(new THREE.ConeGeometry(3,14,18), new THREE.MeshStandardMaterial({color:0xffffff, emissive:0x8ecaff, emissiveIntensity:0.4, roughness:0.18}));
+      needleCrown.position.set(needlePos.x, needleShaft.position.y + 48, needlePos.z);
+      needleCrown.castShadow=needleCrown.receiveShadow=true;
+      scenery.add(needleCrown);
     }
 
     function addBridges(){
@@ -1064,6 +1522,22 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       });
     }
 
+    function addMountains(){
+      const tex=makeMountainTex(); tex.wrapS=tex.wrapT=THREE.ClampToEdgeWrapping; tex.anisotropy=4;
+      const mat=new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false});
+      const ranges=[
+        {offset:new THREE.Vector3(0,260,-2800), scale:1},
+        {offset:new THREE.Vector3(0,320,-2200), scale:0.8},
+        {offset:new THREE.Vector3(0,300,2600), scale:0.9}
+      ];
+      ranges.forEach(spec=>{
+        const plane=new THREE.Mesh(new THREE.PlaneGeometry(6000*spec.scale,800*spec.scale), mat.clone());
+        plane.position.copy(spec.offset);
+        plane.rotation.x=-Math.PI*0.08;
+        scenery.add(plane);
+      });
+    }
+
     function addBillboards(){
       const boardGeo=new THREE.PlaneGeometry(6.6,3.2);
       const frameGeo=new THREE.BoxGeometry(6.9,3.4,0.28);
@@ -1072,11 +1546,15 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       const frameMat=new THREE.MeshStandardMaterial({color:0x222933, metalness:0.35, roughness:0.55});
       const postMat=new THREE.MeshStandardMaterial({color:0x7c848f, roughness:0.4});
       const adverts=[
-        {s:140,off:10,title:'Codex',subtitle:'Build smarter with AI crews'},
-        {s:320,off:-9,title:'TravelSafe UK',subtitle:'Check signals • Mind the gap'},
-        {s:940,off:11,title:'NorthStar Railcard',subtitle:'Save 1/3 on advance fares'},
-        {s:2100,off:-10,title:'City Centre Plaza',subtitle:'Food • Fashion • Cinema'},
-        {s:3050,off:12,title:'Visit Eastbank',subtitle:'Riverside walks this weekend'}
+        {s:140,off:10,title:'Codex Comedy Club',subtitle:'Where merge conflicts get roasted nightly'},
+        {s:260,off:-9,title:'RingLeader PBX',subtitle:'Hold music so catchy you’ll stay on the line'},
+        {s:320,off:-9,title:'Fax of Life',subtitle:'Proof the ’90s never actually hung up'},
+        {s:520,off:12,title:'Pair With Codex',subtitle:'Shipping features before your latte cools'},
+        {s:940,off:11,title:'DialMatic Delight',subtitle:'All-you-can-speak VoIP with extra punchlines'},
+        {s:1350,off:-11,title:'Fast & Faxious',subtitle:'Quarter-mile printouts in twelve minutes flat'},
+        {s:2100,off:-10,title:'Conference Call Cabaret',subtitle:'Unlimited minutes, two-drink minimum'},
+        {s:2650,off:13,title:'Codex Concierge',subtitle:'Bugs checked in at dusk, fixed by dawn'},
+        {s:3050,off:12,title:'RetroFax Express',subtitle:'Your documents deserve a dramatic entrance'}
       ];
       adverts.forEach(spec=>{
         const basis=trackBasisAt(spec.s);
@@ -1101,6 +1579,314 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
           scenery.add(post);
         });
       });
+    }
+
+    function addVictoriaStreetScene(){
+      const victoria=stations.find(st=>st.name==='Victoria Street');
+      if(!victoria) return;
+      const sleeperMaterial=new THREE.MeshStandardMaterial({color:0xc1b7ac, roughness:0.75});
+      const sleeperGeo=new THREE.BoxGeometry(6,0.2,0.35);
+      const every=3;
+      for(let s=victoria.platformStart-25; s<=victoria.platformEnd+45; s+=every){
+        const basis=trackBasisAt(s);
+        const normal=basis.normal;
+        const pos=basis.pos.clone().addScaledVector(normal,-2.2);
+        const sleeper=new THREE.Mesh(sleeperGeo,sleeperMaterial);
+        sleeper.position.set(pos.x,0.12,pos.z);
+        sleeper.rotation.y=basis.yaw;
+        sleeper.castShadow=sleeper.receiveShadow=true;
+        scenery.add(sleeper);
+      }
+
+      const houseTex=makeTenementTex(); houseTex.wrapS=houseTex.wrapT=THREE.RepeatWrapping; houseTex.anisotropy=4;
+      const roofTex=makeTenementRoofTex(); roofTex.wrapS=roofTex.wrapT=THREE.RepeatWrapping; roofTex.anisotropy=4;
+      const houseMat=new THREE.MeshStandardMaterial({map:houseTex, roughness:0.6});
+      const roofMat=new THREE.MeshStandardMaterial({map:roofTex, roughness:0.4});
+      const ranges=[
+        {side:1, start:victoria.platformStart-40, end:victoria.platformEnd+60, offset:18},
+        {side:-1,start:victoria.platformStart-50,end:victoria.platformEnd+50, offset:20}
+      ];
+      ranges.forEach(r=>{
+        for(let s=r.start; s<=r.end; s+=12){
+          const basis=trackBasisAt(s);
+          const normal=basis.normal;
+          const pos=basis.pos.clone().addScaledVector(normal, r.side*(r.offset + rand(-1.4,1.2)));
+          const block=new THREE.Mesh(new THREE.BoxGeometry(14,9,6), houseMat);
+          block.position.set(pos.x,4.5,pos.z);
+          block.rotation.y=basis.yaw + rand(-0.04,0.04);
+          block.castShadow=block.receiveShadow=true;
+          const roof=new THREE.Mesh(new THREE.BoxGeometry(14.4,1.0,6.4), roofMat);
+          roof.position.copy(block.position); roof.position.y=block.position.y+5;
+          roof.rotation.y=block.rotation.y;
+          roof.castShadow=roof.receiveShadow=true;
+          scenery.add(block,roof);
+        }
+      });
+
+      const chimneyTex=makeBrickTex(); chimneyTex.wrapS=chimneyTex.wrapT=THREE.RepeatWrapping; chimneyTex.anisotropy=2;
+      const chimneyMat=new THREE.MeshStandardMaterial({map:chimneyTex, roughness:0.55});
+      const towerMat=new THREE.MeshStandardMaterial({color:0x9da3ad, roughness:0.5});
+      const stacks=[
+        {s:victoria.platformEnd+80, off:-70, h:36},
+        {s:victoria.platformEnd+110, off:-64, h:32},
+        {s:victoria.platformEnd+100, off:72, h:44},
+        {s:victoria.platformEnd+140, off:80, h:40}
+      ];
+      stacks.forEach(spec=>{
+        const basis=trackBasisAt(spec.s);
+        const pos=basis.pos.clone().addScaledVector(basis.normal,spec.off);
+        const chimney=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.6,spec.h,20), chimneyMat);
+        chimney.position.set(pos.x,spec.h/2,pos.z);
+        chimney.castShadow=chimney.receiveShadow=true;
+        scenery.add(chimney);
+        const smokeSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:createSmokeTex(), transparent:true, opacity:0.55, depthWrite:false}));
+        const plume={
+          sprite:smokeSprite,
+          origin:new THREE.Vector3(pos.x,spec.h,pos.z),
+          riseSpeed:0.9,
+          baseScale:3.2,
+          cycle:10 + rand(-2,2),
+          phase:rand(0,4),
+          material:smokeSprite.material,
+          maxOpacity:0.55
+        };
+        smokePlumes.push(plume);
+        smokeSprite.position.copy(plume.origin);
+        smokeSprite.scale.set(plume.baseScale,plume.baseScale,plume.baseScale);
+        scenery.add(smokeSprite);
+      });
+
+      const coolingTowers=[
+        {s:victoria.platformEnd+160, off:-110, h:52},
+        {s:victoria.platformEnd+168, off:120, h:50}
+      ];
+      coolingTowers.forEach(spec=>{
+        const basis=trackBasisAt(spec.s);
+        const pos=basis.pos.clone().addScaledVector(basis.normal,spec.off);
+        const tower=new THREE.Mesh(new THREE.CylinderGeometry(12,18,spec.h,32,1,true), towerMat);
+        tower.position.set(pos.x,spec.h/2,pos.z);
+        tower.castShadow=tower.receiveShadow=true;
+        scenery.add(tower);
+        const top=new THREE.Mesh(new THREE.TorusGeometry(10,0.6,16,48), new THREE.MeshStandardMaterial({color:0xced4dd, roughness:0.3}));
+        top.position.set(pos.x,spec.h,pos.z);
+        top.rotation.x=Math.PI/2;
+        scenery.add(top);
+      });
+
+      function makeTenementTex(){
+        const c=document.createElement('canvas'); c.width=512; c.height=256; const g=c.getContext('2d');
+        g.fillStyle='#7a2f2f'; g.fillRect(0,0,512,256);
+        g.fillStyle='#5b2222'; for(let y=0;y<=256;y+=32) g.fillRect(0,y,512,3);
+        g.fillStyle='#442020'; for(let x=0;x<=512;x+=28) g.fillRect(x,0,2,256);
+        g.fillStyle='#f5f0e6';
+        for(let y=24;y<240;y+=48){ for(let x=20;x<486;x+=56){ g.fillRect(x,y,24,32); g.fillStyle='#2e3945'; g.fillRect(x+4,y+4,16,20); g.fillStyle='#f5f0e6'; } }
+        return new THREE.CanvasTexture(c);
+      }
+      function makeTenementRoofTex(){
+        const c=document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d');
+        g.fillStyle='#3a2b28'; g.fillRect(0,0,256,256);
+        g.fillStyle='#2b1d1a'; for(let y=0;y<256;y+=12){ for(let x=(y/12)%2?6:0;x<256;x+=12){ g.fillRect(x,y,8,10); } }
+        return new THREE.CanvasTexture(c);
+      }
+      function makeBrickTex(){
+        const c=document.createElement('canvas'); c.width=256; c.height=512; const g=c.getContext('2d');
+        g.fillStyle='#7d3b2c'; g.fillRect(0,0,256,512);
+        g.fillStyle='#643025';
+        for(let y=0;y<512;y+=16){ const offset=(y/16)%2?12:0; for(let x=offset;x<256;x+=24){ g.fillRect(x,y,20,12); } }
+        g.strokeStyle='#4c1f18'; g.lineWidth=2; for(let y=0;y<=512;y+=16){ g.beginPath(); g.moveTo(0,y); g.lineTo(256,y); g.stroke(); }
+        return new THREE.CanvasTexture(c);
+      }
+      function createSmokeTex(){
+        const c=document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d');
+        const grd=g.createRadialGradient(128,128,10,128,128,120);
+        grd.addColorStop(0,'rgba(255,255,255,0.9)');
+        grd.addColorStop(0.4,'rgba(200,200,200,0.35)');
+        grd.addColorStop(1,'rgba(200,200,200,0)');
+        g.fillStyle=grd; g.beginPath(); g.arc(128,128,128,0,Math.PI*2); g.fill();
+        return new THREE.CanvasTexture(c);
+      }
+    }
+
+    function addEastbankTerminus(){
+      const east=stations.find(st=>st.name==='Eastbank');
+      if(!east) return;
+      const centreS=(east.platformStart+east.platformEnd)/2;
+      const centreBasis=trackBasisAt(centreS);
+      const normal=centreBasis.normal;
+      const dir=new THREE.Vector3(centreBasis.dir.x,0,centreBasis.dir.z).normalize();
+
+      // Grand station building
+      const hallWidth=60, hallHeight=22, hallDepth=32;
+      const hallPos=centreBasis.pos.clone().addScaledVector(normal, 12).addScaledVector(dir, -6);
+      const hallMat=new THREE.MeshStandardMaterial({color:0x1c2739, roughness:0.5, metalness:0.3});
+      const hall=new THREE.Mesh(new THREE.BoxGeometry(hallWidth,hallHeight,hallDepth), hallMat);
+      hall.position.set(hallPos.x,hallHeight/2,hallPos.z);
+      hall.rotation.y=centreBasis.yaw + 0.02;
+      hall.castShadow=hall.receiveShadow=true;
+      scenery.add(hall);
+
+      const facadeTex=makeHallGlassTex();
+      const facade=new THREE.Mesh(new THREE.PlaneGeometry(hallWidth-6, hallHeight-4), new THREE.MeshStandardMaterial({map:facadeTex, transparent:true, emissive:0x2a4f86, emissiveIntensity:0.35}));
+      facade.position.set(hallPos.x, hall.position.y+1.5, hallPos.z - Math.cos(hall.rotation.y)*(hallDepth/2+0.02));
+      facade.rotation.y=hall.rotation.y;
+      scenery.add(facade);
+
+      const roofCrown=new THREE.Mesh(new THREE.BoxGeometry(hallWidth+4,2.6,hallDepth+4), new THREE.MeshStandardMaterial({color:0x24334a, roughness:0.45}));
+      roofCrown.position.copy(hall.position);
+      roofCrown.position.y=hallHeight+1.3;
+      roofCrown.rotation.y=hall.rotation.y;
+      roofCrown.castShadow=roofCrown.receiveShadow=true;
+      scenery.add(roofCrown);
+
+      const atrium=new THREE.Mesh(new THREE.CylinderGeometry(9,9,18,24,1,true), new THREE.MeshStandardMaterial({color:0x2e3d58, emissive:0x1b4b8c, emissiveIntensity:0.4, roughness:0.3, transparent:true, opacity:0.75}));
+      atrium.position.copy(hall.position).addScaledVector(dir, 11);
+      atrium.castShadow=atrium.receiveShadow=true;
+      scenery.add(atrium);
+
+      // Car park
+      const parkBasis=trackBasisAt(east.platformEnd + 40);
+      const parkPos=parkBasis.pos.clone().addScaledVector(normal, 38);
+      const park=new THREE.Mesh(new THREE.PlaneGeometry(80,52), new THREE.MeshStandardMaterial({map:makeCarparkTex(), roughness:0.95}));
+      park.rotation.x=-Math.PI/2;
+      park.position.set(parkPos.x,0.02,parkPos.z);
+      scenery.add(park);
+
+      const carColors=[0xff4757,0x1e90ff,0x2ed573,0xffa502,0xffffff,0xff6f91];
+      for(let i=0;i<12;i++){
+        const slotX=(i%4 -1.5)*8;
+        const row=Math.floor(i/4);
+        const slotZ=row*10 - 10;
+        const carBody=new THREE.Mesh(new THREE.BoxGeometry(4.6,1.5,2.2), new THREE.MeshStandardMaterial({color:choice(carColors), roughness:0.4, metalness:0.25}));
+        const pos=parkPos.clone().add(new THREE.Vector3(slotX,0,slotZ).applyAxisAngle(new THREE.Vector3(0,1,0), parkBasis.yaw));
+        carBody.position.set(pos.x,1, pos.z);
+        carBody.rotation.y=parkBasis.yaw + Math.PI/2;
+        carBody.castShadow=carBody.receiveShadow=true;
+        const roof=new THREE.Mesh(new THREE.BoxGeometry(3.0,0.5,1.9), new THREE.MeshStandardMaterial({color:0xf8f9fc, roughness:0.2}));
+        roof.position.copy(carBody.position); roof.position.y=1.55; roof.rotation.y=carBody.rotation.y;
+        scenery.add(carBody,roof);
+      }
+
+      // Buffer stop with warning lights
+      const bufferS=east.platformEnd+8;
+      const bufferBasis=trackBasisAt(bufferS);
+      const bufferPos=bufferBasis.pos.clone();
+      const cross=new THREE.Mesh(new THREE.BoxGeometry(2.8,1.2,0.5), new THREE.MeshStandardMaterial({color:0x7e2b2b, roughness:0.4}));
+      cross.position.set(bufferPos.x,0.75,bufferPos.z);
+      cross.rotation.y=bufferBasis.yaw;
+      cross.castShadow=cross.receiveShadow=true;
+      scenery.add(cross);
+
+      const beam=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.9,0.3), new THREE.MeshStandardMaterial({color:0xcc342f, emissive:0x9e1c1a, emissiveIntensity:0.45}));
+      beam.position.copy(bufferPos).addScaledVector(bufferBasis.normal,0.05);
+      beam.position.y=1.0;
+      beam.rotation.y=bufferBasis.yaw;
+      beam.castShadow=beam.receiveShadow=true;
+      scenery.add(beam);
+
+      const lampPositions=[-0.8,0.8];
+      const trackDir=new THREE.Vector3(Math.sin(bufferBasis.yaw),0,Math.cos(bufferBasis.yaw));
+      const trackRight=new THREE.Vector3(-trackDir.z,0,trackDir.x).normalize();
+      lampPositions.forEach(offset=>{
+        const lightPos=bufferBasis.pos.clone().addScaledVector(trackRight, offset*0.65);
+        const lamp=new THREE.Mesh(new THREE.SphereGeometry(0.25,16,16), new THREE.MeshBasicMaterial({color:0xff4d4d}));
+        lamp.position.set(lightPos.x,1.3,lightPos.z);
+        scenery.add(lamp);
+        const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlowTexture(0xff4d4d), color:0xffffff, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+        glow.position.copy(lamp.position);
+        glow.scale.set(1.4,1.4,1.4);
+        scenery.add(glow);
+        const point=new THREE.PointLight(0xff4040, 3.4, 18);
+        point.position.copy(lamp.position);
+        scenery.add(point);
+      });
+
+      const bufferEnd=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.35,0.8), new THREE.MeshStandardMaterial({color:0x5a1a1a, roughness:0.65}));
+      bufferEnd.position.copy(bufferPos).addScaledVector(dir,0.45);
+      bufferEnd.position.y=0.3;
+      bufferEnd.rotation.y=bufferBasis.yaw;
+      bufferEnd.castShadow=bufferEnd.receiveShadow=true;
+      scenery.add(bufferEnd);
+
+      // Additional passengers on platform
+      const bodyGeo=new THREE.CylinderGeometry(0.22,0.26,1.25,14);
+      const headGeo=new THREE.SphereGeometry(0.24,14,14);
+      const legGeo=new THREE.CylinderGeometry(0.1,0.1,0.66,10);
+      const coats=[0xffb347,0x7fc8f8,0xe26d5c,0x7bc47f,0xd785ff,0x8f7fff,0xff9f1c];
+      const trousers=[0x2f3e4e,0x3a2e39,0x4f4f51,0x213147];
+      for(let i=0;i<24;i++){
+        const s=east.platformStart + rand(4, east.platformEnd - east.platformStart -4);
+        const basis=trackBasisAt(s);
+        const pos=basis.pos.clone().addScaledVector(basis.normal, east.side* (4.4 + rand(-0.5,0.6))).addScaledVector(dir, rand(-3.0,3.0));
+        const group=new THREE.Group();
+        const body=new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({color:choice(coats), roughness:0.6}));
+        body.position.y=1.05; body.castShadow=body.receiveShadow=true;
+        const head=new THREE.Mesh(headGeo, new THREE.MeshStandardMaterial({color:0xf3dcc3, roughness:0.45}));
+        head.position.y=1.8; head.castShadow=head.receiveShadow=true;
+        const legL=new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({color:choice(trousers), roughness:0.7}));
+        const legR=legL.clone();
+        legL.position.set(-0.09,0.33,0);
+        legR.position.set(0.09,0.33,0);
+        group.add(body,head,legL,legR);
+        group.position.copy(pos);
+        group.rotation.y=Math.atan2(-basis.normal.x*east.side,-basis.normal.z*east.side) + rand(-0.3,0.3);
+        scenery.add(group);
+      }
+
+      // Tower blocks encircling terminus
+      const towers=[
+        {s:east.platformEnd+30, off:-60, h:88, r:0.08},
+        {s:east.platformEnd+42, off:68, h:76, r:-0.04},
+        {s:east.platformEnd+58, off:-78, h:90, r:0.12},
+        {s:east.platformEnd+64, off:58, h:70, r:-0.08}
+      ];
+      towers.forEach(spec=>{
+        const basis=trackBasisAt(spec.s);
+        const pos=basis.pos.clone().addScaledVector(basis.normal,spec.off);
+        const core=new THREE.Mesh(new THREE.BoxGeometry(22,spec.h,18), new THREE.MeshStandardMaterial({color:0x273449, roughness:0.4}));
+        core.position.set(pos.x,spec.h/2,pos.z);
+        core.rotation.y=basis.yaw + spec.r;
+        core.castShadow=core.receiveShadow=true;
+        scenery.add(core);
+        const glow=new THREE.Mesh(new THREE.BoxGeometry(22.2,2.6,18.2), new THREE.MeshStandardMaterial({color:0x304863, emissive:0x4877c2, emissiveIntensity:0.3, transparent:true, opacity:0.65}));
+        glow.position.set(pos.x,spec.h-3,pos.z);
+        glow.rotation.y=core.rotation.y;
+        scenery.add(glow);
+      });
+
+      // Forecourt paving
+      const plaza=new THREE.Mesh(new THREE.PlaneGeometry(72,40), new THREE.MeshStandardMaterial({color:0x3b4452, roughness:0.85}));
+      plaza.rotation.x=-Math.PI/2;
+      plaza.position.copy(hall.position).addScaledVector(dir, - hallDepth/2 - 6);
+      plaza.position.y=0.01;
+      scenery.add(plaza);
+
+      function makeCarparkTex(){
+        const c=document.createElement('canvas'); c.width=512; c.height=512; const g=c.getContext('2d');
+        g.fillStyle='#2d3642'; g.fillRect(0,0,512,512);
+        g.strokeStyle='#dbe2f1'; g.lineWidth=6;
+        for(let y=64;y<=448;y+=128){ g.beginPath(); g.moveTo(32,y); g.lineTo(480,y); g.stroke(); }
+        for(let x=96;x<=416;x+=128){ g.beginPath(); g.moveTo(x,48); g.lineTo(x,464); g.stroke(); }
+        return new THREE.CanvasTexture(c);
+      }
+      function makeHallGlassTex(){
+        const c=document.createElement('canvas'); c.width=1024; c.height=512; const g=c.getContext('2d');
+        g.fillStyle='rgba(18,34,52,0.85)'; g.fillRect(0,0,1024,512);
+        g.strokeStyle='rgba(120,168,216,0.6)'; g.lineWidth=8;
+        for(let x=40;x<1024;x+=80){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,512); g.stroke(); }
+        for(let y=40;y<512;y+=80){ g.beginPath(); g.moveTo(0,y); g.lineTo(1024,y); g.stroke(); }
+        g.fillStyle='rgba(140,190,240,0.22)'; g.fillRect(0,0,1024,512);
+        return new THREE.CanvasTexture(c);
+      }
+      function makeGlowTexture(hex){
+        const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+        const grd=g.createRadialGradient(64,64,0,64,64,64);
+        const color=`rgba(${(hex>>16)&255},${(hex>>8)&255},${hex&255},`;
+        grd.addColorStop(0,`${color}0.9)`);
+        grd.addColorStop(0.4,`${color}0.35)`);
+        grd.addColorStop(1,'rgba(0,0,0,0)');
+        g.fillStyle=grd; g.beginPath(); g.arc(64,64,64,0,Math.PI*2); g.fill();
+        return new THREE.CanvasTexture(c);
+      }
     }
 
     function makeHouseFacadeTex(){
@@ -1185,6 +1971,48 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       return new THREE.CanvasTexture(c);
     }
 
+    function makeSmokeTex(){
+      const c=document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d');
+      const gradient=g.createRadialGradient(128,128,10,128,128,120);
+      gradient.addColorStop(0,'rgba(255,255,255,0.9)');
+      gradient.addColorStop(0.4,'rgba(200,200,200,0.4)');
+      gradient.addColorStop(1,'rgba(180,180,180,0)');
+      g.fillStyle=gradient;
+      g.fillRect(0,0,256,256);
+      return new THREE.CanvasTexture(c);
+    }
+
+    function makeMountainTex(){
+      const c=document.createElement('canvas'); c.width=1024; c.height=512; const g=c.getContext('2d');
+      const sky=g.createLinearGradient(0,0,0,512);
+      sky.addColorStop(0,'rgba(150,206,235,0)');
+      sky.addColorStop(1,'rgba(135,206,235,1)');
+      g.fillStyle=sky; g.fillRect(0,0,1024,512);
+      g.fillStyle='#3f6a4f';
+      g.beginPath();
+      g.moveTo(0,512);
+      for(let i=0;i<=8;i++){
+        const x=(i/8)*1024;
+        const y=280 + Math.sin(i*0.8)*90;
+        g.lineTo(x,y);
+      }
+      g.lineTo(1024,512);
+      g.closePath();
+      g.fill();
+      g.fillStyle='#5e835c';
+      g.beginPath();
+      g.moveTo(0,512);
+      for(let i=0;i<=8;i++){
+        const x=(i/8)*1024;
+        const y=340 + Math.cos(i*0.7)*70;
+        g.lineTo(x,y);
+      }
+      g.lineTo(1024,512);
+      g.closePath();
+      g.fill();
+      return new THREE.CanvasTexture(c);
+    }
+
     function makeBillboardTex(title, subtitle){
       const c=document.createElement('canvas'); c.width=1024; c.height=512; const g=c.getContext('2d');
       g.fillStyle='#0c1420'; g.fillRect(0,0,1024,512);
@@ -1256,7 +2084,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   // ---------- State / Audio ----------
   const state={ s:stations[0].stopS, speed:0, throttle:0, brake:0, eBrake:false,
     simTime:timetableBase, score:0, derailed:false, spad:false, doorsOpen:true, dwellUntil:null,
-    awsState:'CLEAR', awsDeadline:0 };
+    awsState:'CLEAR', awsDeadline:0, finished:false };
   const frontOffset=2.0, frontS=()=>state.s+frontOffset;
   let prevBrake=state.brake;
 
@@ -1394,12 +2222,25 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
 
   // ---------- Input (mouse yaw fixed: left = left) ----------
   let yaw=0, pitch=0; function recenter(){ yaw=0; pitch=0; }
-  renderer.domElement.addEventListener('mousedown', ()=>{ ensureAudio(); renderer.domElement.requestPointerLock({unadjustedMovement:true}).catch(()=>{}); });
+  renderer.domElement.addEventListener('mousedown', ()=>{
+    ensureAudio();
+    try {
+      const lockReq = renderer.domElement.requestPointerLock({unadjustedMovement:true});
+      if(lockReq && typeof lockReq.catch==='function') lockReq.catch(()=>{});
+    } catch(_err) {}
+  });
   document.addEventListener('pointerlockchange', ()=>{ if(document.pointerLockElement===renderer.domElement) document.addEventListener('mousemove', onMove);
     else { document.removeEventListener('mousemove', onMove); recenter(); }});
   function onMove(e){ yaw -= e.movementX*0.0025; pitch -= e.movementY*0.0022; yaw=clamp(yaw,-Math.PI*0.6,Math.PI*0.6); pitch=clamp(pitch,-Math.PI*0.33,Math.PI*0.33); }
   window.addEventListener('keydown', e=>{
     if(e.repeat) return;
+    if(jumpMenuOpen){
+      if(e.code==='Escape' || e.code==='KeyJ'){ hideJumpMenu(); return; }
+      const num=parseInt(e.key,10);
+      if(!Number.isNaN(num) && num>=1 && num<=stations.length){ jumpToStation(num-1); }
+      return;
+    }
+    if(e.code==='KeyJ'){ showJumpMenu(); return; }
     ensureAudio();
     if(e.code==='KeyW') state.throttle=clamp(state.throttle+0.1,0,1);
     if(e.code==='KeyS') state.throttle=clamp(state.throttle-0.1,0,1);
@@ -1407,11 +2248,30 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     if(e.code==='KeyD') state.brake=clamp(state.brake+0.1,0,1);
     if(e.code==='KeyQ' && state.awsState==='WARNING') awsClear();
     if(e.code==='Space'){
-      if(isWithinPlatform(nextStationIndex) && Math.abs(frontS()-stations[nextStationIndex].stopS)<=2 && state.speed<0.2){
+      if(isWithinPlatform(nextStationIndex) && state.speed<0.2){
         toggleDoors();
       }
     }
-    if(e.code==='KeyR'){ if(state.derailed||state.spad){ state.derailed=false; state.spad=false; hideOverlay(); state.eBrake=false; state.brake=0; state.throttle=0; } }
+    if(e.code==='KeyR'){
+      let handled=false;
+      if(state.derailed||state.spad){
+        state.derailed=false;
+        state.spad=false;
+        handled=true;
+        hideOverlay();
+      }
+      if(state.awsState==='BRAKE'){
+        awsClear();
+        state.awsDeadline=0;
+        state.spad=false;
+        handled=true;
+      }
+      if(handled){
+        state.eBrake=false;
+        state.brake=0;
+        state.throttle=0;
+      }
+    }
     if(e.code==='Escape') recenter();
   });
 
@@ -1420,14 +2280,48 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
       state.doorsOpen=true; state.dwellUntil=state.simTime+8; state.throttle=0; state.brake=1.0; doorChime(true);
     }else{
       if(state.dwellUntil && state.simTime>=state.dwellUntil){
-        state.doorsOpen=false; state.brake=0.2; doorChime(false); brakeHiss();
-        if(isWithinPlatform(nextStationIndex)){ stations[nextStationIndex]._completedStop=true; if(nextStationIndex<stations.length-1) nextStationIndex++; updateAllSignalAspects(); }
+        state.doorsOpen=false; state.brake=0.2; state.dwellUntil=null; doorChime(false); brakeHiss();
+        if(isWithinPlatform(nextStationIndex)){
+          const st=stations[nextStationIndex];
+          if(st){
+            st._completedStop=true;
+            if(st.name==='Eastbank') showTerminusFeedback();
+          }
+          if(nextStationIndex<stations.length-1) nextStationIndex++;
+          updateAllSignalAspects();
+        }
       }
     }
   }
 
   stations.forEach(st=>{ st._arrived=false; st._completedStop=(st.name==='Westford'); });
   function isWithinPlatform(i){ const st=stations[i]; const s=frontS(); return s>=st.platformStart && s<=st.platformEnd; }
+
+  function jumpToStation(idx){
+    const target=stations[idx]; if(!target) return;
+    state.s=clamp(target.stopS - frontOffset, 0, Route.length-2);
+    state.speed=0;
+    state.throttle=0;
+    state.brake=0.2;
+    prevBrake=state.brake;
+    state.eBrake=false;
+    state.derailed=false;
+    state.spad=false;
+    state.doorsOpen=false;
+    state.dwellUntil=null;
+    state.awsState='CLEAR';
+    state.awsDeadline=0;
+    cab._awsLamp.material.color.setHex(0x111111);
+    state.simTime=Math.max(0, target.due-60);
+    nextStationIndex=idx;
+    stations.forEach((station,i)=>{
+      station._arrived = i<idx;
+      station._completedStop = i<idx || (station.name==='Westford' && i===0);
+    });
+    updateAllSignalAspects();
+    hideOverlay();
+    hideJumpMenu();
+  }
 
   // ---------- SPAD & AWS checks ----------
   function checkSPAD(prevFront, nowFront){
@@ -1486,8 +2380,37 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     // clacks
     const ds=state.s-prevS; sleeperPhase+=Math.max(0,ds); while(sleeperPhase>=0.7){ sleeperPhase-=0.7; if(mph>8) playClack(); }
 
+    animatedForklifts.forEach(f=>{
+      const cycle=(state.simTime * f.speed + f.phase) % (f.span*2);
+      const forward=cycle<=f.span ? cycle : f.span*2 - cycle;
+      const signed=cycle<=f.span ? forward : -forward;
+      const pos=f.origin.clone().addScaledVector(f.dir, signed);
+      f.group.position.set(pos.x, f.origin.y, pos.z);
+      f.group.rotation.y=f.yaw + (cycle<=f.span ? 0 : Math.PI);
+    });
+
+    smokePlumes.forEach(p=>{
+      const t=(state.simTime + p.phase) % p.cycle;
+      const rise=t * p.riseSpeed;
+      p.sprite.position.set(p.origin.x, p.origin.y + rise, p.origin.z);
+      const scale=p.baseScale*(1 + t*0.4);
+      p.sprite.scale.set(scale, scale, scale);
+      p.material.opacity=p.maxOpacity * (1 - t/p.cycle);
+    });
+
+    kineticInstallations.forEach(obj=>{
+      obj.mesh.rotation.y += dt * obj.speed;
+    });
+
+    hoverPods.forEach(pod=>{
+      const osc=(state.simTime * pod.speed) + pod.phase;
+      pod.mesh.position.y = pod.baseY + Math.sin(osc) * pod.amp;
+      pod.mesh.rotation.y += dt * 0.6;
+      pod.mesh.rotation.x += dt * 0.3;
+    });
+
     checkAWS(prevFront,nowFront); checkSPAD(prevFront,nowFront);
-    handleStations(dt); updateAllSignalAspects();
+    handleStations();
 
     // Camera
     const base=Route.posAt(state.s), t=Route.tanAt(state.s), fwd=new THREE.Vector3(t.x,0,t.z).normalize(), up=new THREE.Vector3(0,1,0), right=new THREE.Vector3().crossVectors(fwd,up).normalize();
@@ -1526,18 +2449,18 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
     const idx=nextStationIndex; if(!stations[idx]) return;
     const st=stations[idx]; const inPlat=isWithinPlatform(idx);
     if(inPlat){
-      const alignTol = st.alignTolerance ?? 2.0;
-      const aligned=Math.abs(frontS()-st.stopS)<=alignTol;
-      if(state.speed<0.15 && aligned && !st._arrived){
+      if(state.speed<0.15 && !st._arrived){
         st._arrived=true; const diff=Math.abs(state.simTime-st.due);
         if(diff<=30) state.score+=100; else state.score -= Math.max(0,state.simTime-st.due)*0.5;
         state.score+=50;
       }
-      if(!state.doorsOpen && state.speed<0.05 && aligned && !state.dwellUntil){ state.doorsOpen=true; state.dwellUntil=state.simTime+8; doorChime(true); }
+      if(!state.doorsOpen && state.speed<0.05 && !state.dwellUntil){ state.doorsOpen=true; state.dwellUntil=state.simTime+8; doorChime(true); }
       if(state.doorsOpen && state.dwellUntil && state.simTime>=state.dwellUntil){
         // auto-close if player doesn't press Space
-        state.doorsOpen=false; state.brake=0.2; doorChime(false); brakeHiss();
-        st._completedStop=true; updateAllSignalAspects(); if(nextStationIndex<stations.length-1) nextStationIndex++;
+        state.doorsOpen=false; state.brake=0.2; state.dwellUntil=null; doorChime(false); brakeHiss();
+        st._completedStop=true;
+        if(st.name==='Eastbank') showTerminusFeedback();
+        updateAllSignalAspects(); if(nextStationIndex<stations.length-1) nextStationIndex++;
       }
     }
   }
@@ -1560,7 +2483,23 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
   const overlay=document.getElementById('overlay'), ovTitle=document.getElementById('ov-title'), ovText=document.getElementById('ov-text'), ovBtn=document.getElementById('ov-btn');
   ovBtn.addEventListener('click', ()=>{ hideOverlay(); state.derailed=false; state.spad=false; state.eBrake=false; });
   function showOverlay(t,txt){ ovTitle.textContent=t; ovText.textContent=txt; overlay.style.display='flex'; }
-  function hideOverlay(){ overlay.style.display='none'; }
+  function hideOverlay(){ overlay.style.display='none'; ovBtn.textContent='Acknowledge (R)'; }
+
+  function showTerminusFeedback(){
+    if(state.finished) return;
+    state.finished=true;
+    const score=Math.round(state.score);
+    let body;
+    if(score>=350){
+      body=`Score ${score}.\nSuperb run – smooth braking, sharp timekeeping. Enjoy the applause at Eastbank!`;
+    }else if(score>=200){
+      body=`Score ${score}.\nWell driven! A touch more precision on speed control and you’ll be unstoppable.`;
+    }else{
+      body=`Score ${score}.\nJourney complete. Let’s refine those stops and keep practicing for a cleaner run.`;
+    }
+    ovBtn.textContent='Dismiss (R)';
+    showOverlay('Eastbank Arrival', body);
+  }
 
   // ---------- Startup ----------
   setTimeout(()=>{ state.doorsOpen=false; state.brake=0.2; },6000);
